@@ -1,11 +1,12 @@
 import { useMemo, useState } from 'react';
 import axios from 'axios';
-import { ArrowUpRight, Database, FileSpreadsheet, FileText, Link2, LoaderCircle, Plus, RefreshCw, Trash2, Upload } from 'lucide-react';
+import { AlertCircle, ArrowUpRight, CheckCircle2, Database, FileSpreadsheet, FileText, Link2, LoaderCircle, Plus, RefreshCw, Trash2, Upload } from 'lucide-react';
 
 import type { GraphNode, Primitive } from '@ontofabric/shared/types.js';
 
 type PropertyValueType = 'string' | 'number' | 'boolean' | 'null';
 type PropertyRow = { id: string; key: string; value: string; valueType: PropertyValueType };
+type SapSyncStatus = { state: 'idle' | 'syncing' | 'success' | 'error'; message: string; count?: number };
 
 type IngestionPanelProps = {
   onRefresh: () => Promise<void>;
@@ -52,6 +53,7 @@ export function IngestionPanel({ onRefresh, id, graphNodes = [], entityLabels = 
   const [filePath, setFilePath] = useState('');
   const [busy, setBusy] = useState('');
   const [notice, setNotice] = useState('');
+  const [sapStatus, setSapStatus] = useState<SapSyncStatus>({ state: 'idle', message: '' });
   const [nodeLabel, setNodeLabel] = useState('');
   const [propertyRows, setPropertyRows] = useState<PropertyRow[]>([createPropertyRow()]);
   const [sourceNode, setSourceNode] = useState('');
@@ -61,13 +63,13 @@ export function IngestionPanel({ onRefresh, id, graphNodes = [], entityLabels = 
   const entityOptions = [...new Set([...defaultEntityLabels, ...entityLabels])];
   const relationshipOptions = [...new Set([...defaultRelationshipNames, ...relationshipNames])];
 
-  const run = async (key: string, action: () => Promise<void>) => {
+  const run = async (key: string, action: () => Promise<string | void>) => {
     setBusy(key);
     setNotice('');
     try {
-      await action();
+      const successMessage = await action();
       await onRefresh();
-      setNotice('Graph updated successfully.');
+      setNotice(successMessage ?? 'Graph updated successfully.');
     } catch (error) {
       setNotice(axios.isAxiosError(error) ? error.response?.data?.message ?? error.response?.data?.error ?? 'Request failed.' : 'Request failed.');
     } finally {
@@ -81,6 +83,24 @@ export function IngestionPanel({ onRefresh, id, graphNodes = [], entityLabels = 
     }
     await api.post('/api/ingest/file', { filePath: filePath.trim(), sourceType });
   });
+
+  const syncSap = async () => {
+    setBusy('SAP');
+    setNotice('');
+    setSapStatus({ state: 'syncing', message: 'Connecting to SAP Business Accelerator Hub...' });
+    try {
+      const { data } = await api.post<{ count: number; entityType: string }>('/api/integrations/sap/sync');
+      await onRefresh();
+      setSapStatus({ state: 'success', count: data.count, message: `Imported ${data.count} ${data.entityType} record${data.count === 1 ? '' : 's'}.` });
+    } catch (error) {
+      const message = axios.isAxiosError(error)
+        ? error.response?.data?.message ?? error.response?.data?.error ?? 'SAP synchronization failed.'
+        : error instanceof Error ? error.message : 'SAP synchronization failed.';
+      setSapStatus({ state: 'error', message });
+    } finally {
+      setBusy('');
+    }
+  };
 
   const createNode = () => run('node', async () => {
     if (propertyErrors.size > 0) throw new Error('Fix the property validation errors before creating the entity.');
@@ -135,9 +155,13 @@ export function IngestionPanel({ onRefresh, id, graphNodes = [], entityLabels = 
               {busy === 'PDF' ? <LoaderCircle size={14} className="animate-spin" /> : <FileText size={14} />} PDF
             </button>
           </div>
-          <button type="button" className={`${buttonClass} mt-2 border border-white/10 text-slate-300 hover:bg-white/5`} disabled={Boolean(busy)} onClick={() => setNotice('ERP sync endpoint is ready for the next connector configuration.')}>
-            <Database size={14} /> Sync ERP <ArrowUpRight size={13} className="ml-auto text-slate-500" />
+          <button type="button" className={`${buttonClass} mt-2 border border-white/10 text-slate-300 hover:bg-white/5`} disabled={Boolean(busy)} onClick={() => void syncSap()}>
+            {busy === 'SAP' ? <LoaderCircle size={14} className="animate-spin" /> : <Database size={14} />} Sync SAP sandbox <ArrowUpRight size={13} className="ml-auto text-slate-500" />
           </button>
+          {sapStatus.state !== 'idle' && <div className={`mt-2 flex items-start gap-2 rounded-xl border px-3 py-2.5 text-xs leading-5 ${sapStatus.state === 'error' ? 'border-rose-300/30 bg-rose-300/10 text-rose-100' : sapStatus.state === 'success' ? 'border-emerald-300/30 bg-emerald-300/10 text-emerald-100' : 'border-cyan-300/30 bg-cyan-300/10 text-cyan-100'}`} role={sapStatus.state === 'error' ? 'alert' : 'status'} aria-live="polite">
+            {sapStatus.state === 'syncing' ? <LoaderCircle size={14} className="mt-0.5 shrink-0 animate-spin" /> : sapStatus.state === 'error' ? <AlertCircle size={14} className="mt-0.5 shrink-0" /> : <CheckCircle2 size={14} className="mt-0.5 shrink-0" />}
+            <span><strong className="font-semibold">{sapStatus.state === 'syncing' ? 'SAP sync in progress' : sapStatus.state === 'error' ? 'SAP sync failed' : 'SAP sync complete'}</strong><span className="block opacity-90">{sapStatus.message}</span></span>
+          </div>}
           <button type="button" className={`${buttonClass} mt-2 border border-white/10 text-slate-300 hover:bg-white/5`} disabled={Boolean(busy)} onClick={() => setNotice('CRM sync endpoint is ready for the next connector configuration.')}>
             <RefreshCw size={14} /> Sync CRM <ArrowUpRight size={13} className="ml-auto text-slate-500" />
           </button>

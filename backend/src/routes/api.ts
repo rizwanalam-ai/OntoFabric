@@ -13,6 +13,7 @@ import {
   queryGraphFromNeo4j
 } from '../services/ontologyService.js';
 import { executeGroundedQuery } from '../services/graphRagService.js';
+import { syncSapSandbox } from '../services/sapService.js';
 
 const router = Router();
 const primitive = z.union([z.string(), z.number(), z.boolean(), z.null()]);
@@ -106,6 +107,16 @@ router.post('/ingest/file', async (request, response) => {
     response.status(201).json({ sourceType: detectedSourceType, ...graph, nodes: redactNodeProperties(nodes, getUserRole(request)) });
   } catch (error) {
     response.status(502).json({ error: 'File ingestion failed.', message: errorMessage(error) });
+  }
+});
+
+router.post('/integrations/sap/sync', async (_request, response) => {
+  try {
+    const result = await syncSapSandbox();
+    await persistGraphToNeo4j(result.nodes, []);
+    response.status(201).json({ sourceType: result.sourceType, entityType: result.entityType, count: result.count });
+  } catch (error) {
+    response.status(502).json({ error: 'SAP sandbox sync failed.', message: errorMessage(error) });
   }
 });
 

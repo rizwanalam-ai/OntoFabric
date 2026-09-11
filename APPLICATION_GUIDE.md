@@ -39,6 +39,7 @@ Excel / PDF / ERP / CRM / SME input
 - A running Neo4j instance
 - An OpenAI-compatible configuration if grounded natural-language graph queries are enabled
 - Local Excel/PDF files for file-ingestion scenarios
+- A SAP Business Accelerator Hub sandbox API, if SAP synchronization is enabled
 
 The backend defaults to:
 
@@ -49,6 +50,37 @@ The backend defaults to:
 - Neo4j database: `neo4j`
 
 Use environment variables to override these defaults. Keep secrets in a local `.env` file; do not commit it.
+
+### SAP sandbox configuration
+
+The Source Sync sidebar includes **Sync SAP sandbox**. Configure the backend with the SAP Business Accelerator Hub API you want to test:
+
+```env
+SAP_API_BASE_URL=https://your-sandbox-api.example.com
+SAP_API_PATH=/path/to/odata/entity-set
+SAP_API_KEY=your_sap_api_key
+# Alternatively, use a bearer token instead of SAP_API_KEY:
+# SAP_API_TOKEN=your_bearer_token
+# For SAP NetWeaver sandbox endpoints that require Basic authentication:
+# SAP_USERNAME=your_sap_username
+# SAP_PASSWORD=your_sap_password
+SAP_ENTITY_TYPE=BusinessPartner
+```
+
+The connector sends `Accept: application/json`, uses the `apikey` header when `SAP_API_KEY` is set, uses an `Authorization: Bearer` header when `SAP_API_TOKEN` is set, and uses Basic authentication when both `SAP_USERNAME` and `SAP_PASSWORD` are set. Basic authentication takes precedence over bearer authentication. It accepts either a plain JSON array or an OData response with a `value` array. Primitive fields are stored as ERP graph node properties with SAP provenance metadata.
+
+The exact base URL and path depend on the API selected in SAP Business Accelerator Hub. The API key or token must remain in the backend environment and must never be placed in frontend variables.
+
+If the backend reports `SAP TLS certificate is not trusted by Node`, configure the issuing CA certificate before starting Node:
+
+```powershell
+$env:NODE_EXTRA_CA_CERTS = 'C:\certificates\corporate-root-ca.pem'
+npm run dev --workspace @ontofabric/backend
+```
+
+The backend starts Node with the system CA store enabled so SAP sandbox TLS certificates can be validated on supported Node versions. If your Node version does not support `--use-system-ca`, set `NODE_EXTRA_CA_CERTS` to the relevant corporate or SAP CA PEM file before starting the backend.
+
+Do not disable TLS verification with `NODE_TLS_REJECT_UNAUTHORIZED=0` in normal development or production use.
 
 ## Run Locally
 
@@ -123,6 +155,8 @@ Open **Source Sync** in the left sidebar:
 4. Parsed content is converted into source-system-agnostic ontology nodes and relationships.
 5. The extracted graph is persisted to Neo4j.
 6. The Explorer refreshes and displays the new data.
+
+For SAP, select **Sync SAP sandbox** instead. The configured SAP endpoint is fetched by the backend, records are normalized as ERP nodes, persisted to Neo4j, and included in the next graph refresh.
 
 Excel files are read across every worksheet. PDF files are converted to extracted text before ontology extraction.
 
