@@ -1,0 +1,9 @@
+{
+  "servers": {
+    "ontofabric-knowledge-graph": {
+      "type": "stdio",
+      "command": "npm",
+      "args": ["run", "start", "--workspace", "@ontofabric/mcp-server"]
+    }
+  }
+}

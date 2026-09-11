@@ -1,0 +1,24 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  font-family: 'Space Grotesk', 'Avenir Next', sans-serif;
+  color: #f8fafc;
+  background: #020617;
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+  background:
+    radial-gradient(circle at 84% 0%, rgba(19, 79, 104, 0.24), transparent 31rem),
+    radial-gradient(circle at 10% 100%, rgba(79, 29, 93, 0.14), transparent 28rem),
+    #060b14;
+}
+
+button,
+input,
+textarea {
+  font: inherit;
+}
