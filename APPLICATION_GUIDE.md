@@ -1,0 +1,360 @@
+# OntoFabric Application Guide
+
+OntoFabric is an enterprise ontology and knowledge-graph workspace for combining operational data, curated subject-matter-expert input, entity resolution, and S&OP planning data in one interface.
+
+The application has four workspace areas:
+
+- **Explorer**: inspect the ontology graph, ingest source files, add SME entities and relationships, and ask grounded graph questions.
+- **Approvals**: review and resolve possible duplicate entities before they become canonical graph data.
+- **S&OP Cockpit**: review demand, inventory, supplier exposure, and production capacity.
+- **MCP source tools**: parse Excel/PDF files and retrieve ERP/CRM records through the Model Context Protocol server.
+
+## Architecture
+
+```text
+Excel / PDF / ERP / CRM / SME input
+                |
+                v
+       MCP server and backend APIs
+                |
+                v
+              Neo4j
+                |
+                v
+       OntoFabric React workspace
+```
+
+### Packages
+
+| Package | Responsibility |
+| --- | --- |
+| `frontend` | React/Vite workspace, graph explorer, source sync, approvals, and S&OP views |
+| `backend` | Express API, Neo4j persistence, ontology extraction, graph queries, and entity resolution |
+| `mcp-server` | Official MCP TypeScript SDK server for source parsing and mock ERP/CRM retrieval |
+| `shared` | Shared graph, ontology, temporal, S&OP, and primitive-property contracts |
+
+## Prerequisites
+
+- Node.js with npm workspaces support
+- A running Neo4j instance
+- An OpenAI-compatible configuration if grounded natural-language graph queries are enabled
+- Local Excel/PDF files for file-ingestion scenarios
+
+The backend defaults to:
+
+- API: `http://localhost:3001`
+- Neo4j URI: `bolt://localhost:7687`
+- Neo4j username: `neo4j`
+- Neo4j password: `password`
+- Neo4j database: `neo4j`
+
+Use environment variables to override these defaults. Keep secrets in a local `.env` file; do not commit it.
+
+## Run Locally
+
+From the repository root:
+
+```bash
+npm install
+npm run typecheck
+npm run build
+```
+
+Initialize Neo4j indexes and constraints:
+
+```bash
+npm run db:init --workspace @ontofabric/backend
+```
+
+Seed the example S&OP graph and planning data:
+
+```bash
+npm run db:seed:sop --workspace @ontofabric/backend
+npm run db:seed:planning --workspace @ontofabric/backend
+```
+
+Start the backend:
+
+```bash
+npm run dev --workspace @ontofabric/backend
+```
+
+Start the frontend in another terminal:
+
+```bash
+npm run dev --workspace @ontofabric/frontend
+```
+
+The Vite development server prints the local browser URL, normally `http://localhost:5173`.
+
+The backend health check is available at `GET http://localhost:3001/health`.
+
+## Explorer Workflow
+
+### 1. Explore the graph
+
+The **Explorer** tab displays ontology nodes and relationships in a React Flow canvas.
+
+Available graph interactions include:
+
+- Force-style radial layout for a broad relationship view.
+- Dagre hierarchical layout for left-to-right dependency analysis.
+- Automatic fit-to-view when data, layout, filters, or panel dimensions change.
+- Extra canvas padding so nodes do not clip against the top or left edges.
+- Pan, scroll zoom, draggable nodes, and a pannable/zoomable minimap.
+- Explicit `Zoom In`, `Zoom Out`, `Reset View`, and `Center` actions.
+- Node filtering by ID, type label, and property values.
+- Entity color coding by ontology type.
+- Relationship labels displayed as readable semi-transparent badges.
+- Clustered high-connectivity node groups that can be expanded.
+- Node selection for detail inspection.
+- Node context menu access to provenance and lineage.
+- Fullscreen graph mode.
+
+The graph is loaded from `GET /api/sop/graph`, which returns the seeded S&OP graph used by the workspace.
+
+### 2. Sync a source file
+
+Open **Source Sync** in the left sidebar:
+
+1. Enter a local file path.
+2. Choose **Excel** or **PDF**.
+3. The backend calls the matching MCP parser.
+4. Parsed content is converted into source-system-agnostic ontology nodes and relationships.
+5. The extracted graph is persisted to Neo4j.
+6. The Explorer refreshes and displays the new data.
+
+Excel files are read across every worksheet. PDF files are converted to extracted text before ontology extraction.
+
+### 3. Add an SME entity
+
+In the **SME Input** section:
+
+1. Select an entity label such as `Product`, `Supplier`, `Facility`, or `Customer`.
+2. Add one or more property rows.
+3. Choose each property value type: text, number, boolean, or null.
+4. Edit or delete rows as needed.
+5. Confirm the live schema status is valid.
+6. Select **Create entity**.
+
+The property editor validates required property names, duplicate keys, and numeric values before submission. The backend accepts primitive property values only: strings, numbers, booleans, and null.
+
+### 4. Add an SME relationship
+
+In **Link entities**:
+
+1. Enter the source node ID.
+2. Enter the target node ID.
+3. Select a relationship such as `HAS_DEMAND`, `FOR_PRODUCT`, `SUPPLIED_BY`, or `FULFILLED_BY`.
+4. Select **Create relationship**.
+
+The relationship options combine standard S&OP relationships with relationship names already present in the loaded graph.
+
+### 5. Ask the graph assistant
+
+Open **Graph Assistant** beside the graph and enter a natural-language question, for example:
+
+```text
+Which products have inventory below their reorder point?
+```
+
+The assistant:
+
+- Converts the prompt into a read-only grounded graph query.
+- Executes the query against the graph.
+- Returns an answer and generated Cypher.
+- Highlights the source nodes used to produce the answer.
+
+## Approvals Workflow
+
+The **Approvals** tab displays possible duplicate entities detected by the resolution service.
+
+For each candidate pair, reviewers can:
+
+- Compare entity names, IDs, source systems, properties, and conflicting fields.
+- Move between pending matches with previous/next controls.
+- **Approve merge** when both records represent the same entity.
+- **Link as alias** when records should remain distinct but related.
+- **Reject match** when the candidate is not a duplicate.
+
+Resolved items are removed from the pending queue. The backend validates every action as `MERGE`, `LINK`, or `REJECT`.
+
+## S&OP Cockpit Workflow
+
+The **S&OP Cockpit** tab presents the planning summary as a focused operating view.
+
+### Summary metrics
+
+- Forecast demand across planning periods.
+- Number of inventory records below reorder point.
+- Longest supplier lead time.
+- Number of available work centers.
+
+### Planning tables
+
+- **Inventory by facility**: product/facility, on-hand quantity, and reorder point. Alert rows identify inventory below reorder point.
+- **Supplier exposure**: supplier, lead time, and minimum order quantity. Long lead times are highlighted.
+- **Production capacity**: work center, capacity, and unit cost.
+
+Each table has:
+
+- A fixed header that remains visible while the body scrolls.
+- A bounded scrollable body to prevent the dashboard from being truncated by long datasets.
+- A pagination footer showing the visible range and total count.
+- Previous and next page controls.
+
+The summary is loaded from `GET /api/sop/summary`.
+
+## API Capability Map
+
+All backend routes are served from `http://localhost:3001`.
+
+| Method | Route | Purpose |
+| --- | --- | --- |
+| `GET` | `/health` | Check backend availability |
+| `POST` | `/api/ingest/file` | Parse Excel/PDF input, extract ontology data, and persist it |
+| `GET` | `/api/ontology/graph` | Query the ontology graph, optionally at an ISO timestamp |
+| `POST` | `/api/sme/entity` | Persist exactly one SME node or relationship |
+| `POST` | `/api/chat/graph-query` | Run a grounded natural-language graph query |
+| `GET` | `/api/resolution/pending` | Load pending entity matches |
+| `POST` | `/api/resolution/approve` | Merge, link, or reject a pending match |
+| `GET` | `/api/sop/graph` | Load the S&OP graph |
+| `GET` | `/api/sop/summary` | Load demand, inventory, supplier, and capacity data |
+
+Requests are validated with Zod schemas. Invalid input returns a client error with validation details. Backend failures are returned with an error message and an appropriate service status.
+
+## MCP Tools
+
+The MCP server uses the official TypeScript SDK and exposes these tools over stdio:
+
+| Tool | Use |
+| --- | --- |
+| `parse_excel_source` | Read every worksheet and return structured row objects |
+| `parse_pdf_source` | Extract text and page count from a PDF |
+| `fetch_erp_records` | Return mock ERP customer or order records with optional filtering |
+| `fetch_crm_contacts` | Return mock CRM contacts for an account ID |
+
+The backend uses the file parsing tools through its MCP client. ERP and CRM tools provide a source-system integration shape that can later be replaced with live connectors.
+
+## Data and Governance Features
+
+- Shared graph contracts keep ingestion and graph-domain data source-system agnostic.
+- Graph nodes and relationships carry valid-time and transaction-time metadata.
+- Ontology graph reads support an optional `asOfTimestamp` for temporal inspection.
+- The backend applies role-aware property redaction to graph responses and grounded-query source nodes.
+- Neo4j indexes and constraints are initialized by the backend database script.
+- Pending entity reviews are stored separately with unique pending IDs and status indexing.
+
+## Practical Scenarios
+
+### Scenario 1: Investigate a supply shortage
+
+**Goal:** determine why a product may miss future demand.
+
+1. Seed or ingest product, component, inventory, supplier, and demand data.
+2. Open **S&OP Cockpit** and inspect inventory alerts.
+3. Review the affected facility and reorder point.
+4. Switch to **Explorer** and use Dagre layout.
+5. Trace `FOR_PRODUCT`, `STORED_AT`, `SUPPLIED_BY`, and `HAS_DEMAND` relationships.
+6. Ask the Graph Assistant which products have insufficient inventory and which suppliers support their components.
+7. Use the minimap and Center control to navigate a larger graph.
+
+### Scenario 2: Consolidate duplicate customer records
+
+**Goal:** clean up records from multiple source systems.
+
+1. Ingest CRM and ERP records or load the provided mock source data.
+2. Open **Approvals**.
+3. Review a candidate pair and compare conflicting fields.
+4. Approve a merge if the records represent one customer.
+5. Link the records if they are related aliases that should remain distinct.
+6. Reject false positives.
+7. Return to **Explorer** to inspect the canonical graph.
+
+### Scenario 3: Add planner knowledge without changing an upstream system
+
+**Goal:** record a planner-maintained supplier or relationship.
+
+1. Open **Explorer** and expand **Source Sync / SME Input**.
+2. Select `Supplier` as the entity label.
+3. Add typed properties such as `name`, `country`, and `leadTimeDays`.
+4. Create the entity.
+5. Add a relationship from a component to the supplier using `SUPPLIED_BY`.
+6. Refresh the graph and verify the new node and edge.
+
+### Scenario 4: Analyze a historical graph state
+
+**Goal:** understand what the ontology looked like at a prior point in time.
+
+1. Call `GET /api/ontology/graph?asOfTimestamp=<ISO timestamp>`.
+2. Compare the returned graph with the current `/api/ontology/graph` response.
+3. Use the node provenance and temporal fields to explain when data became valid and when it was recorded.
+4. Use role-appropriate responses when sharing the result with different user roles.
+
+### Scenario 5: Combine PDF contracts with planning data
+
+**Goal:** connect contract text with operational planning entities.
+
+1. Enter the contract PDF path in Source Sync.
+2. Select **PDF**.
+3. Let the MCP parser extract text and the ontology service persist the resulting graph.
+4. Search or filter the graph for suppliers, products, or facilities found in the contract.
+5. Add SME links where extraction needs domain clarification.
+6. Review the S&OP Cockpit for planning impact.
+
+## Troubleshooting
+
+### The frontend shows no graph data
+
+- Confirm the backend is running on port 3001.
+- Check `GET /health`.
+- Run the database initialization and S&OP seed commands.
+- Verify Neo4j credentials and database name in `.env`.
+
+### The S&OP cockpit is empty
+
+Run:
+
+```bash
+npm run db:seed:planning --workspace @ontofabric/backend
+```
+
+Then refresh the browser.
+
+### File ingestion fails
+
+- Confirm the file path is readable by the backend process.
+- Confirm the selected source type matches the file.
+- For PDF input, verify the document contains extractable text.
+- Check backend logs for MCP parser or ontology extraction errors.
+
+### Graph assistant requests fail
+
+- Confirm the backend can reach Neo4j.
+- Confirm the required OpenAI-compatible environment configuration exists.
+- Try a shorter question using graph terms such as node labels or relationship names.
+
+## Development Commands
+
+```bash
+# Validate all workspaces
+npm run typecheck
+
+# Build all workspaces
+npm run build
+
+# Frontend only
+npm run typecheck --workspace @ontofabric/frontend
+npm run build --workspace @ontofabric/frontend
+npm run dev --workspace @ontofabric/frontend
+
+# Backend only
+npm run typecheck --workspace @ontofabric/backend
+npm run build --workspace @ontofabric/backend
+npm run dev --workspace @ontofabric/backend
+
+# Database
+npm run db:init --workspace @ontofabric/backend
+npm run db:seed:sop --workspace @ontofabric/backend
+npm run db:seed:planning --workspace @ontofabric/backend
+```

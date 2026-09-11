@@ -13,10 +13,11 @@ const primitiveProperties = (value: Record<string, unknown>): PrimitiveDictionar
 
 const resultNode = (node: { properties: Record<string, unknown> }): GraphNode => {
   const properties = node.properties;
-  const reserved = new Set(['id', 'sopLabel', 'sourceSystem', 'createdAt', 'validFrom', 'validTo', 'transactionFrom', 'transactionTo', 'provenanceJson']);
+  const reserved = new Set(['id', 'sopLabel', 'typeId', 'typeLabel', 'typeAttributesJson', 'sourceSystem', 'createdAt', 'validFrom', 'validTo', 'transactionFrom', 'transactionTo', 'provenanceJson']);
+  const typeLabel = String(properties.sopLabel ?? properties.typeLabel ?? 'Entity');
   return {
     id: String(properties.id),
-    type: { id: String(properties.sopLabel).toLowerCase(), label: String(properties.sopLabel), attributes: {} },
+    type: { id: String(properties.typeId ?? typeLabel).toLowerCase(), label: typeLabel, attributes: {} },
     sourceSystem: (properties.sourceSystem as GraphNode['sourceSystem'] | undefined) ?? 'SOP',
     properties: primitiveProperties(Object.fromEntries(Object.entries(properties).filter(([key]) => !reserved.has(key)))),
     createdAt: String(properties.createdAt ?? properties.validFrom ?? new Date().toISOString()),
@@ -35,7 +36,9 @@ export const querySopGraph = async (): Promise<{ nodes: GraphNode[]; edges: Grap
   try {
     const result = await session.executeRead((transaction) => transaction.run(
       `MATCH (source)-[relationship]->(target)
-       WHERE source.sopLabel IS NOT NULL AND type(relationship) IN $relationshipTypes
+       WHERE source.sopLabel IS NOT NULL
+         AND (type(relationship) IN $relationshipTypes
+           OR (type(relationship) = 'RELATED_TO' AND relationship.relationship IN $relationshipTypes))
        RETURN source, relationship, target LIMIT 500`,
       { relationshipTypes: SOP_RELATIONSHIP_TYPES }
     ));
@@ -49,7 +52,7 @@ export const querySopGraph = async (): Promise<{ nodes: GraphNode[]; edges: Grap
       nodes.set(target.properties.id, resultNode(target));
       relationships.push({
         id: String(relationship.properties.id),
-        relationship: relationship.type as SopRelationshipType,
+        relationship: String(relationship.properties.relationship ?? relationship.type) as SopRelationshipType,
         source: String(source.properties.id),
         target: String(target.properties.id),
         properties: primitiveProperties(relationship.properties),

@@ -188,14 +188,14 @@ export const persistGraphToNeo4j = async (nodes: GraphNode[], edges: GraphEdge[]
       for (const edge of edges) {
         const temporal = temporalDefaults(edge.validFrom, edge);
         await transaction.run(
-          `MATCH (source:Entity {id: $source, transactionTo: $openEnded}), (target:Entity {id: $target, transactionTo: $openEnded})
+          `MATCH (source {id: $source}), (target {id: $target})
            MATCH (source)-[previous:RELATED_TO {id: $id}]->(target)
-           WHERE previous.transactionTo > $transactionFrom
+           WHERE coalesce(previous.transactionTo, $openEnded) > $transactionFrom
            SET previous.transactionTo = $transactionFrom`,
           { id: edge.id, source: edge.source, target: edge.target, openEnded: DEFAULT_TEMPORAL_END, transactionFrom: temporal.transactionFrom }
         );
         await transaction.run(
-          `MATCH (source:Entity {id: $source, transactionTo: $openEnded}), (target:Entity {id: $target, transactionTo: $openEnded})
+          `MATCH (source {id: $source}), (target {id: $target})
            MERGE (source)-[r:RELATED_TO {id: $id, transactionFrom: $transactionFrom}]->(target)
              SET r += $properties,
                r.id = $id,
@@ -225,13 +225,16 @@ export const queryGraphAtTimestamp = async (asOfDate: string): Promise<{ nodes: 
 
   try {
     const result = await session.executeRead((transaction) => transaction.run(
-      `MATCH (n)-[r]->(m)
+      `MATCH (n)
        WHERE n.validFrom <= $asOfDate AND n.validTo > $asOfDate
          AND n.transactionFrom <= $asOfDate AND n.transactionTo > $asOfDate
-         AND m.validFrom <= $asOfDate AND m.validTo > $asOfDate
+       OPTIONAL MATCH (n)-[r]->(m)
+       WHERE r IS NULL OR (
+         m.validFrom <= $asOfDate AND m.validTo > $asOfDate
          AND m.transactionFrom <= $asOfDate AND m.transactionTo > $asOfDate
          AND r.validFrom <= $asOfDate AND r.validTo > $asOfDate
          AND r.transactionFrom <= $asOfDate AND r.transactionTo > $asOfDate
+       )
        RETURN n, r, m LIMIT 200`,
       { asOfDate }
     ));
@@ -258,7 +261,7 @@ export const queryGraphAtTimestamp = async (asOfDate: string): Promise<{ nodes: 
         transactionTo: source.properties.transactionTo,
         provenance: parseProvenance(source.properties.provenanceJson, source.properties)
       });
-      nodes.set(target.elementId, {
+      if (target) nodes.set(target.elementId, {
         id: target.properties.id,
         type: {
           id: target.properties.typeId,
@@ -274,7 +277,7 @@ export const queryGraphAtTimestamp = async (asOfDate: string): Promise<{ nodes: 
         transactionTo: target.properties.transactionTo,
         provenance: parseProvenance(target.properties.provenanceJson, target.properties)
       });
-      edges.push({
+      if (relationship && target) edges.push({
         id: relationship.properties.id,
         source: source.properties.id,
         target: target.properties.id,

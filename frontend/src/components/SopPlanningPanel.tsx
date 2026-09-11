@@ -28,9 +28,9 @@ export function SopPlanningPanel({ refreshKey = 0 }: SopPlanningPanelProps) {
   const longestLeadTime = summary.supplierRisks[0]?.leadTimeDays ?? 0;
 
   return (
-    <section className="rounded-[1.75rem] border border-white/10 bg-[#0c1525] p-5 md:p-6">
+    <section className="rounded-[1.75rem] border border-white/15 bg-[#0c1525] p-5 md:p-6">
       <div className="flex flex-wrap items-end justify-between gap-4">
-        <div><p className="text-[10px] font-bold uppercase tracking-[0.22em] text-amber-300">S&amp;OP cockpit</p><h3 className="mt-2 text-xl font-semibold text-white">Supply and operations pulse</h3><p className="mt-1 text-xs text-slate-500">Demand, inventory, supplier exposure, and manufacturing capacity in one operating view.</p></div>
+        <div><p className="text-[10px] font-bold uppercase tracking-[0.22em] text-amber-300">S&amp;OP cockpit</p><h3 className="mt-2 text-xl font-semibold text-white">Supply and operations pulse</h3><p className="mt-1 text-xs text-slate-300">Demand, inventory, supplier exposure, and manufacturing capacity in one operating view.</p></div>
         {error && <span className="text-xs text-amber-200">{error}</span>}
       </div>
       <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
@@ -41,7 +41,7 @@ export function SopPlanningPanel({ refreshKey = 0 }: SopPlanningPanelProps) {
       </div>
       <div className="mt-5 grid gap-4 xl:grid-cols-3">
         <PlanningTable title="Inventory by facility" headers={['Product / facility', 'On hand', 'Reorder']} rows={summary.inventory.map((item) => [`${item.productId} · ${item.facilityId}`, item.onHand.toLocaleString(), item.reorderPoint.toLocaleString()])} alertRows={summary.inventory.map((item) => item.onHand < item.reorderPoint)} />
-        <PlanningTable title="Supplier exposure" headers={['Supplier', 'Lead time', 'MOQ']} rows={summary.supplierRisks.slice(0, 5).map((item) => [item.supplierName, `${item.leadTimeDays}d`, item.minimumOrderQty.toLocaleString()])} alertRows={summary.supplierRisks.slice(0, 5).map((item) => item.leadTimeDays > 28)} />
+        <PlanningTable title="Supplier exposure" headers={['Supplier', 'Lead time', 'MOQ']} rows={summary.supplierRisks.map((item) => [item.supplierName, `${item.leadTimeDays}d`, item.minimumOrderQty.toLocaleString()])} alertRows={summary.supplierRisks.map((item) => item.leadTimeDays > 28)} />
         <PlanningTable title="Production capacity" headers={['Work center', 'Capacity', 'Unit cost']} rows={summary.capacity.map((item) => [item.workCenterName, item.capacity.toLocaleString(), `$${item.unitCost}`])} />
       </div>
     </section>
@@ -49,9 +49,16 @@ export function SopPlanningPanel({ refreshKey = 0 }: SopPlanningPanelProps) {
 }
 
 function Metric({ icon, label, value, detail, color }: { icon: ReactNode; label: string; value: string; detail: string; color: string }) {
-  return <div className="rounded-2xl border border-white/10 bg-[#101a2c] p-4"><div className={`flex items-center gap-2 text-xs ${color}`}>{icon}<span className="text-slate-500">{label}</span></div><p className="mt-3 text-2xl font-semibold text-white">{value}</p><p className="mt-1 text-[10px] text-slate-600">{detail}</p></div>;
+  return <div className="rounded-2xl border border-white/15 bg-[#101a2c] p-4"><div className={`flex items-center gap-2 text-xs ${color}`}>{icon}<span className="text-slate-300">{label}</span></div><p className="mt-3 text-2xl font-semibold text-white">{value}</p><p className="mt-1 text-[10px] text-slate-400">{detail}</p></div>;
 }
 
 function PlanningTable({ title, headers, rows, alertRows = [] }: { title: string; headers: string[]; rows: string[][]; alertRows?: boolean[] }) {
-  return <div className="overflow-hidden rounded-2xl border border-white/10 bg-[#101a2c]"><div className="border-b border-white/10 px-4 py-3 text-xs font-semibold text-slate-300">{title}</div><table className="w-full text-left text-[11px]"><thead><tr className="text-slate-600">{headers.map((header) => <th key={header} className="px-3 py-2 font-medium">{header}</th>)}</tr></thead><tbody>{rows.length === 0 ? <tr><td colSpan={headers.length} className="px-3 py-4 text-slate-600">No data yet</td></tr> : rows.map((row, index) => <tr key={`${title}-${index}`} className={`border-t border-white/5 ${alertRows[index] ? 'bg-rose-300/10 text-rose-100' : 'text-slate-300'}`}>{row.map((value, valueIndex) => <td key={`${title}-${index}-${valueIndex}`} className="px-3 py-2.5">{value}</td>)}</tr>)}</tbody></table></div>;
+  const pageSize = 5;
+  const [page, setPage] = useState(0);
+  const pageCount = Math.max(1, Math.ceil(rows.length / pageSize));
+  const currentPage = Math.min(page, pageCount - 1);
+  const visibleRows = rows.slice(currentPage * pageSize, (currentPage + 1) * pageSize);
+  useEffect(() => setPage(0), [rows.length]);
+
+  return <div className="overflow-hidden rounded-2xl border border-white/15 bg-[#101a2c]"><div className="border-b border-white/15 px-4 py-3 text-xs font-semibold text-slate-200">{title}</div><div className="max-h-64 overflow-y-auto"><table className="w-full text-left text-[11px]"><thead className="sticky top-0 z-10 bg-[#17243a] text-slate-200"><tr>{headers.map((header) => <th key={header} className="px-3 py-2 font-semibold">{header}</th>)}</tr></thead><tbody>{rows.length === 0 ? <tr><td colSpan={headers.length} className="px-3 py-4 text-slate-400">No data yet</td></tr> : visibleRows.map((row, index) => { const rowIndex = currentPage * pageSize + index; return <tr key={`${title}-${rowIndex}`} className={`border-t border-white/10 ${alertRows[rowIndex] ? 'bg-rose-300/10 text-rose-100' : 'text-slate-200'}`}>{row.map((value, valueIndex) => <td key={`${title}-${rowIndex}-${valueIndex}`} className="px-3 py-2.5">{value}</td>)}</tr>; })}</tbody></table></div><footer className="flex items-center justify-between border-t border-white/15 px-3 py-2 text-[10px] text-slate-300"><span>{rows.length === 0 ? '0 items' : `${currentPage * pageSize + 1}-${Math.min((currentPage + 1) * pageSize, rows.length)} of ${rows.length}`}</span><div className="flex items-center gap-1"><button type="button" onClick={() => setPage((current) => Math.max(0, current - 1))} disabled={currentPage === 0} className="rounded-md px-2 py-1 text-slate-300 hover:bg-white/10 disabled:opacity-30">Previous</button><span className="px-1 text-slate-400">Page {currentPage + 1} / {pageCount}</span><button type="button" onClick={() => setPage((current) => Math.min(pageCount - 1, current + 1))} disabled={currentPage >= pageCount - 1} className="rounded-md px-2 py-1 text-slate-300 hover:bg-white/10 disabled:opacity-30">Next</button></div></footer></div>;
 }

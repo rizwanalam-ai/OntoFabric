@@ -1,22 +1,65 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import axios from 'axios';
-import { ArrowUpRight, Database, FileSpreadsheet, FileText, Link2, LoaderCircle, Plus, RefreshCw, Upload } from 'lucide-react';
+import { ArrowUpRight, Database, FileSpreadsheet, FileText, Link2, LoaderCircle, Plus, RefreshCw, Trash2, Upload } from 'lucide-react';
+
+import type { GraphNode, Primitive } from '@ontofabric/shared/types.js';
+
+type PropertyValueType = 'string' | 'number' | 'boolean' | 'null';
+type PropertyRow = { id: string; key: string; value: string; valueType: PropertyValueType };
 
 type IngestionPanelProps = {
   onRefresh: () => Promise<void>;
+  id?: string;
+  graphNodes?: Array<Pick<GraphNode, 'id' | 'type'>>;
+  entityLabels?: string[];
+  relationshipNames?: string[];
 };
 
 const api = axios.create({ baseURL: import.meta.env.VITE_API_URL ?? 'http://localhost:3001' });
+const defaultEntityLabels = ['Product', 'Component', 'Facility', 'WorkCenter', 'Supplier', 'Customer', 'DemandForecast'];
+const defaultRelationshipNames = ['HAS_DEMAND', 'FOR_PRODUCT', 'REQUIRES_BOM', 'STORED_AT', 'PRODUCED_AT', 'SUPPLIED_BY', 'SHIPPED_TO', 'FULFILLED_BY'];
 
-export function IngestionPanel({ onRefresh }: IngestionPanelProps) {
+const createPropertyRow = (): PropertyRow => ({ id: crypto.randomUUID(), key: '', value: '', valueType: 'string' });
+
+const getPropertyValue = (row: PropertyRow): Primitive => {
+  if (row.valueType === 'number') return Number(row.value);
+  if (row.valueType === 'boolean') return row.value === 'true';
+  if (row.valueType === 'null') return null;
+  return row.value;
+};
+
+const validatePropertyRows = (rows: PropertyRow[]) => {
+  const errors = new Map<string, string[]>();
+  const keys = new Map<string, string>();
+  const addError = (rowId: string, message: string) => errors.set(rowId, [...(errors.get(rowId) ?? []), message]);
+  rows.forEach((row) => {
+    const key = row.key.trim();
+    const hasValue = row.value.trim() !== '' || row.valueType === 'null';
+    if (!key && !hasValue) return;
+    if (!key) addError(row.id, 'Property name is required.');
+    if (key && keys.has(key)) {
+      addError(row.id, 'Property names must be unique.');
+      addError(keys.get(key)!, 'Property names must be unique.');
+    } else if (key) {
+      keys.set(key, row.id);
+    }
+    if (row.valueType === 'number' && (!hasValue || !Number.isFinite(Number(row.value)))) addError(row.id, 'Enter a valid number.');
+  });
+  return errors;
+};
+
+export function IngestionPanel({ onRefresh, id, graphNodes = [], entityLabels = [], relationshipNames = [] }: IngestionPanelProps) {
   const [filePath, setFilePath] = useState('');
   const [busy, setBusy] = useState('');
   const [notice, setNotice] = useState('');
   const [nodeLabel, setNodeLabel] = useState('');
-  const [nodeProperties, setNodeProperties] = useState('{\n  "name": ""\n}');
+  const [propertyRows, setPropertyRows] = useState<PropertyRow[]>([createPropertyRow()]);
   const [sourceNode, setSourceNode] = useState('');
   const [targetNode, setTargetNode] = useState('');
   const [relationship, setRelationship] = useState('');
+  const propertyErrors = useMemo(() => validatePropertyRows(propertyRows), [propertyRows]);
+  const entityOptions = [...new Set([...defaultEntityLabels, ...entityLabels])];
+  const relationshipOptions = [...new Set([...defaultRelationshipNames, ...relationshipNames])];
 
   const run = async (key: string, action: () => Promise<void>) => {
     setBusy(key);
@@ -40,7 +83,8 @@ export function IngestionPanel({ onRefresh }: IngestionPanelProps) {
   });
 
   const createNode = () => run('node', async () => {
-    const properties = JSON.parse(nodeProperties) as Record<string, string | number | boolean | null>;
+    if (propertyErrors.size > 0) throw new Error('Fix the property validation errors before creating the entity.');
+    const properties = Object.fromEntries(propertyRows.filter((row) => row.key.trim()).map((row) => [row.key.trim(), getPropertyValue(row)]));
     await api.post('/api/sme/entity', {
       node: {
         id: `SME-${crypto.randomUUID()}`,
@@ -51,6 +95,7 @@ export function IngestionPanel({ onRefresh }: IngestionPanelProps) {
       }
     });
     setNodeLabel('');
+    setPropertyRows([createPropertyRow()]);
   });
 
   const createEdge = () => run('edge', async () => {
@@ -70,9 +115,10 @@ export function IngestionPanel({ onRefresh }: IngestionPanelProps) {
 
   const inputClass = 'mt-2 w-full rounded-xl border border-white/10 bg-[#0a1221] px-3 py-2.5 text-xs text-slate-200 outline-none transition placeholder:text-slate-600 focus:border-cyan-300/70 focus:ring-2 focus:ring-cyan-300/10';
   const buttonClass = 'flex w-full items-center justify-center gap-2 rounded-xl px-3 py-2.5 text-xs font-bold transition disabled:cursor-not-allowed disabled:opacity-40';
+  const updatePropertyRow = (rowId: string, update: Partial<PropertyRow>) => setPropertyRows((rows) => rows.map((row) => row.id === rowId ? { ...row, ...update } : row));
 
   return (
-    <aside className="w-full shrink-0 overflow-y-auto border-b border-white/10 bg-[#0c1525] lg:w-[360px] lg:border-b-0 lg:border-r">
+    <aside id={id} className="w-full shrink-0 overflow-y-auto border-b border-white/10 bg-[#0c1525] lg:w-[360px] lg:border-b-0 lg:border-r">
       <div className="space-y-7 p-5 lg:p-6">
         <div>
           <div className="mb-4 flex items-center gap-2">
@@ -103,18 +149,49 @@ export function IngestionPanel({ onRefresh }: IngestionPanelProps) {
             <h2 className="text-[11px] font-bold uppercase tracking-[0.2em] text-slate-300">SME input</h2>
           </div>
           <label className="text-xs text-slate-500" htmlFor="node-label">Entity label</label>
-          <input id="node-label" className={inputClass} value={nodeLabel} onChange={(event) => setNodeLabel(event.target.value)} placeholder="Supplier" />
-          <label className="mt-4 block text-xs text-slate-500" htmlFor="node-properties">Properties JSON</label>
-          <textarea id="node-properties" className={`${inputClass} min-h-24 resize-y font-mono leading-5`} value={nodeProperties} onChange={(event) => setNodeProperties(event.target.value)} />
-          <button type="button" className={`${buttonClass} mt-3 bg-fuchsia-400 text-[#190d25] hover:bg-fuchsia-300`} disabled={Boolean(busy) || !nodeLabel.trim()} onClick={() => void createNode()}>
+          <select id="node-label" className={inputClass} value={nodeLabel} onChange={(event) => setNodeLabel(event.target.value)}>
+            <option value="">Select an entity type</option>
+            {entityOptions.map((option) => <option key={option} value={option}>{option}</option>)}
+          </select>
+          <div className="mt-4 flex items-center justify-between gap-3">
+            <label className="text-xs text-slate-500" htmlFor="property-name">Properties</label>
+            <span className={`text-[10px] font-semibold ${propertyErrors.size === 0 ? 'text-emerald-300' : 'text-rose-300'}`} aria-live="polite">{propertyErrors.size === 0 ? 'Schema valid' : `${propertyErrors.size} row${propertyErrors.size === 1 ? '' : 's'} need attention`}</span>
+          </div>
+          <div className="mt-2 space-y-2" aria-label="Entity properties">
+            {propertyRows.map((row, index) => {
+              const rowErrors = propertyErrors.get(row.id) ?? [];
+              return <div key={row.id} className="rounded-xl border border-white/10 bg-[#0a1221]/70 p-2">
+                <div className="flex items-center gap-2">
+                  <input id={index === 0 ? 'property-name' : undefined} className="min-w-0 flex-1 rounded-lg border border-white/10 bg-[#0a1221] px-2.5 py-2 text-xs text-slate-200 outline-none placeholder:text-slate-600 focus:border-cyan-300/70" value={row.key} onChange={(event) => updatePropertyRow(row.id, { key: event.target.value })} placeholder="Property name" aria-label={`Property ${index + 1} name`} />
+                  <select className="w-24 rounded-lg border border-white/10 bg-[#0a1221] px-2 py-2 text-[11px] text-slate-300 outline-none focus:border-cyan-300/70" value={row.valueType} onChange={(event) => updatePropertyRow(row.id, { valueType: event.target.value as PropertyValueType, value: event.target.value === 'null' ? '' : row.value })} aria-label={`Property ${index + 1} type`}>
+                    <option value="string">Text</option><option value="number">Number</option><option value="boolean">Boolean</option><option value="null">Null</option>
+                  </select>
+                  <button type="button" onClick={() => setPropertyRows((rows) => rows.filter((item) => item.id !== row.id))} aria-label={`Delete property ${index + 1}`} title="Delete property" className="rounded-lg p-2 text-slate-500 hover:bg-rose-300/10 hover:text-rose-300"><Trash2 size={14} /></button>
+                </div>
+                {row.valueType === 'boolean' ? <select className="mt-2 w-full rounded-lg border border-white/10 bg-[#0a1221] px-2.5 py-2 text-xs text-slate-200 outline-none focus:border-cyan-300/70" value={row.value || 'false'} onChange={(event) => updatePropertyRow(row.id, { value: event.target.value })} aria-label={`Property ${index + 1} value`}><option value="true">True</option><option value="false">False</option></select> : row.valueType !== 'null' ? <input className={`mt-2 w-full rounded-lg border bg-[#0a1221] px-2.5 py-2 text-xs text-slate-200 outline-none placeholder:text-slate-600 focus:border-cyan-300/70 ${rowErrors.length > 0 ? 'border-rose-300/50' : 'border-white/10'}`} type={row.valueType === 'number' ? 'number' : 'text'} value={row.value} onChange={(event) => updatePropertyRow(row.id, { value: event.target.value })} placeholder="Value" aria-label={`Property ${index + 1} value`} /> : <p className="mt-2 px-2.5 py-2 text-[11px] italic text-slate-500">Value is null</p>}
+                {rowErrors.length > 0 && <p className="mt-1 px-1 text-[10px] text-rose-300" role="alert">{rowErrors.join(' ')}</p>}
+              </div>;
+            })}
+          </div>
+          <button type="button" onClick={() => setPropertyRows((rows) => [...rows, createPropertyRow()])} className="mt-2 flex w-full items-center justify-center gap-2 rounded-xl border border-dashed border-cyan-300/30 px-3 py-2 text-xs font-semibold text-cyan-200 hover:bg-cyan-300/10"><Plus size={14} /> Add property</button>
+          <button type="button" className={`${buttonClass} mt-3 bg-fuchsia-400 text-[#190d25] hover:bg-fuchsia-300`} disabled={Boolean(busy) || !nodeLabel.trim() || propertyErrors.size > 0} onClick={() => void createNode()}>
             {busy === 'node' ? <LoaderCircle size={14} className="animate-spin" /> : <Plus size={14} />} Create entity
           </button>
 
           <div className="my-6 h-px bg-white/10" />
           <div className="mb-3 flex items-center gap-2 text-xs font-semibold text-slate-300"><Link2 size={14} className="text-fuchsia-300" /> Link entities</div>
-          <input className={inputClass} value={sourceNode} onChange={(event) => setSourceNode(event.target.value)} placeholder="Source node ID" />
-          <input className={inputClass} value={targetNode} onChange={(event) => setTargetNode(event.target.value)} placeholder="Target node ID" />
-          <input className={inputClass} value={relationship} onChange={(event) => setRelationship(event.target.value)} placeholder="Relationship name" />
+          <select className={inputClass} value={sourceNode} onChange={(event) => setSourceNode(event.target.value)}>
+            <option value="">Select source entity</option>
+            {graphNodes.map((node) => <option key={`source-${node.id}`} value={node.id}>{node.type.label}: {node.id}</option>)}
+          </select>
+          <select className={inputClass} value={targetNode} onChange={(event) => setTargetNode(event.target.value)}>
+            <option value="">Select target entity</option>
+            {graphNodes.map((node) => <option key={`target-${node.id}`} value={node.id}>{node.type.label}: {node.id}</option>)}
+          </select>
+          <select className={inputClass} value={relationship} onChange={(event) => setRelationship(event.target.value)}>
+            <option value="">Select a relationship</option>
+            {relationshipOptions.map((option) => <option key={option} value={option}>{option}</option>)}
+          </select>
           <button type="button" className={`${buttonClass} mt-3 border border-fuchsia-300/30 text-fuchsia-200 hover:bg-fuchsia-300/10`} disabled={Boolean(busy) || !sourceNode.trim() || !targetNode.trim() || !relationship.trim()} onClick={() => void createEdge()}>
             {busy === 'edge' ? <LoaderCircle size={14} className="animate-spin" /> : <Link2 size={14} />} Create relationship
           </button>

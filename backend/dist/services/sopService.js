@@ -6,10 +6,11 @@ export const SOP_RELATIONSHIP_TYPES = [
 const primitiveProperties = (value) => Object.fromEntries(Object.entries(value).filter(([, item]) => typeof item === 'string' || typeof item === 'number' || typeof item === 'boolean' || item === null));
 const resultNode = (node) => {
     const properties = node.properties;
-    const reserved = new Set(['id', 'sopLabel', 'sourceSystem', 'createdAt', 'validFrom', 'validTo', 'transactionFrom', 'transactionTo', 'provenanceJson']);
+    const reserved = new Set(['id', 'sopLabel', 'typeId', 'typeLabel', 'typeAttributesJson', 'sourceSystem', 'createdAt', 'validFrom', 'validTo', 'transactionFrom', 'transactionTo', 'provenanceJson']);
+    const typeLabel = String(properties.sopLabel ?? properties.typeLabel ?? 'Entity');
     return {
         id: String(properties.id),
-        type: { id: String(properties.sopLabel).toLowerCase(), label: String(properties.sopLabel), attributes: {} },
+        type: { id: String(properties.typeId ?? typeLabel).toLowerCase(), label: typeLabel, attributes: {} },
         sourceSystem: properties.sourceSystem ?? 'SOP',
         properties: primitiveProperties(Object.fromEntries(Object.entries(properties).filter(([key]) => !reserved.has(key)))),
         createdAt: String(properties.createdAt ?? properties.validFrom ?? new Date().toISOString()),
@@ -31,7 +32,9 @@ export const querySopGraph = async () => {
     const session = getNeo4jDriver().session();
     try {
         const result = await session.executeRead((transaction) => transaction.run(`MATCH (source)-[relationship]->(target)
-       WHERE source.sopLabel IS NOT NULL AND type(relationship) IN $relationshipTypes
+       WHERE source.sopLabel IS NOT NULL
+         AND (type(relationship) IN $relationshipTypes
+           OR (type(relationship) = 'RELATED_TO' AND relationship.relationship IN $relationshipTypes))
        RETURN source, relationship, target LIMIT 500`, { relationshipTypes: SOP_RELATIONSHIP_TYPES }));
         const nodes = new Map();
         const relationships = [];
@@ -43,7 +46,7 @@ export const querySopGraph = async () => {
             nodes.set(target.properties.id, resultNode(target));
             relationships.push({
                 id: String(relationship.properties.id),
-                relationship: relationship.type,
+                relationship: String(relationship.properties.relationship ?? relationship.type),
                 source: String(source.properties.id),
                 target: String(target.properties.id),
                 properties: primitiveProperties(relationship.properties),

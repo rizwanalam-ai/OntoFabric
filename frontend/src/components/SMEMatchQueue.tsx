@@ -33,17 +33,17 @@ const displayValue = (value: unknown): string => value === null || value === und
 function EntityCard({ label, node, conflicts }: { label: string; node: GraphNode; conflicts: string[] }) {
   const fields = [...new Set([...Object.keys(node.properties), ...conflicts])];
   return (
-    <div className="min-w-0 flex-1 rounded-2xl border border-white/10 bg-[#0a1221] p-4">
+    <div className="min-w-0 flex-1 rounded-2xl border border-white/15 bg-[#0a1221] p-4">
       <div className="flex items-center justify-between gap-3">
-        <span className="text-[10px] font-bold uppercase tracking-[0.18em] text-slate-500">{label}</span>
+        <span className="text-[10px] font-bold uppercase tracking-[0.18em] text-slate-300">{label}</span>
         <span className={`rounded-full border px-2 py-1 text-[9px] font-bold tracking-[0.12em] ${sourceColor[node.sourceSystem]}`}>{node.sourceSystem}</span>
       </div>
       <h4 className="mt-3 truncate text-sm font-semibold text-slate-100">{displayValue(node.properties.name ?? node.id)}</h4>
-      <p className="mt-1 truncate font-mono text-[10px] text-slate-600">{node.id}</p>
+      <p className="mt-1 truncate font-mono text-[10px] text-slate-400">{node.id}</p>
       <dl className="mt-4 space-y-2">
         {fields.map((key) => (
           <div key={key} className={`flex items-start justify-between gap-4 rounded-lg px-2 py-1.5 text-xs ${conflicts.includes(key) ? 'bg-amber-300/10 ring-1 ring-amber-300/20' : ''}`}>
-            <dt className="text-slate-500">{key}</dt>
+            <dt className="text-slate-300">{key}</dt>
             <dd className={`max-w-[62%] truncate text-right ${conflicts.includes(key) ? 'text-amber-100' : 'text-slate-300'}`}>{displayValue(node.properties[key])}</dd>
           </div>
         ))}
@@ -74,21 +74,21 @@ export function SMEMatchQueue({ matches, onResolved }: SMEMatchQueueProps) {
   };
 
   return (
-    <section className="rounded-[1.75rem] border border-white/10 bg-[#0c1525] p-5 md:p-6">
+    <section className="rounded-[1.75rem] border border-white/15 bg-[#0c1525] p-5 md:p-6">
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
           <p className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-[0.22em] text-amber-300"><ShieldAlert size={13} /> SME approval queue</p>
           <h3 className="mt-2 text-xl font-semibold text-white">Resolve possible duplicates</h3>
-          <p className="mt-1 text-xs text-slate-500">Review low-confidence matches before they enter the canonical graph.</p>
+          <p className="mt-1 text-xs text-slate-300">Review low-confidence matches before they enter the canonical graph.</p>
         </div>
         <span className="rounded-full border border-amber-300/20 bg-amber-300/10 px-3 py-1.5 font-mono text-xs text-amber-200">{matches.length} pending</span>
       </div>
       {!match ? (
-        <div className="mt-5 rounded-2xl border border-dashed border-white/10 px-5 py-8 text-center text-xs text-slate-500">No candidate matches need review.</div>
+        <div className="mt-5 rounded-2xl border border-dashed border-white/15 px-5 py-8 text-center text-xs text-slate-300">No candidate matches need review.</div>
       ) : (
         <>
           <div className="mt-5 flex flex-wrap items-center justify-between gap-3">
-            <div className="flex items-center gap-2 text-xs text-slate-500"><span className="font-mono text-slate-300">{index + 1}</span> of {matches.length}</div>
+            <div className="flex items-center gap-2 text-xs text-slate-300"><span className="font-mono text-white">{index + 1}</span> of {matches.length}</div>
             <div className="flex items-center gap-1">
               <button type="button" aria-label="Previous match" disabled={index === 0} onClick={() => setIndex((current) => current - 1)} className="rounded-lg p-2 text-slate-400 hover:bg-white/10 disabled:opacity-30"><ChevronLeft size={16} /></button>
               <button type="button" aria-label="Next match" disabled={index === matches.length - 1} onClick={() => setIndex((current) => current + 1)} className="rounded-lg p-2 text-slate-400 hover:bg-white/10 disabled:opacity-30"><ChevronRight size={16} /></button>

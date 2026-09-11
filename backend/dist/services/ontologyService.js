@@ -155,11 +155,11 @@ export const persistGraphToNeo4j = async (nodes, edges) => {
             }
             for (const edge of edges) {
                 const temporal = temporalDefaults(edge.validFrom, edge);
-                await transaction.run(`MATCH (source:Entity {id: $source, transactionTo: $openEnded}), (target:Entity {id: $target, transactionTo: $openEnded})
+                await transaction.run(`MATCH (source {id: $source}), (target {id: $target})
            MATCH (source)-[previous:RELATED_TO {id: $id}]->(target)
-           WHERE previous.transactionTo > $transactionFrom
+           WHERE coalesce(previous.transactionTo, $openEnded) > $transactionFrom
            SET previous.transactionTo = $transactionFrom`, { id: edge.id, source: edge.source, target: edge.target, openEnded: DEFAULT_TEMPORAL_END, transactionFrom: temporal.transactionFrom });
-                await transaction.run(`MATCH (source:Entity {id: $source, transactionTo: $openEnded}), (target:Entity {id: $target, transactionTo: $openEnded})
+                await transaction.run(`MATCH (source {id: $source}), (target {id: $target})
            MERGE (source)-[r:RELATED_TO {id: $id, transactionFrom: $transactionFrom}]->(target)
              SET r += $properties,
                r.id = $id,
@@ -185,13 +185,16 @@ export const persistGraphToNeo4j = async (nodes, edges) => {
 export const queryGraphAtTimestamp = async (asOfDate) => {
     const session = getNeo4jDriver().session();
     try {
-        const result = await session.executeRead((transaction) => transaction.run(`MATCH (n)-[r]->(m)
+        const result = await session.executeRead((transaction) => transaction.run(`MATCH (n)
        WHERE n.validFrom <= $asOfDate AND n.validTo > $asOfDate
          AND n.transactionFrom <= $asOfDate AND n.transactionTo > $asOfDate
-         AND m.validFrom <= $asOfDate AND m.validTo > $asOfDate
+       OPTIONAL MATCH (n)-[r]->(m)
+       WHERE r IS NULL OR (
+         m.validFrom <= $asOfDate AND m.validTo > $asOfDate
          AND m.transactionFrom <= $asOfDate AND m.transactionTo > $asOfDate
          AND r.validFrom <= $asOfDate AND r.validTo > $asOfDate
          AND r.transactionFrom <= $asOfDate AND r.transactionTo > $asOfDate
+       )
        RETURN n, r, m LIMIT 200`, { asOfDate }));
         const nodes = new Map();
         const edges = [];
@@ -215,33 +218,35 @@ export const queryGraphAtTimestamp = async (asOfDate) => {
                 transactionTo: source.properties.transactionTo,
                 provenance: parseProvenance(source.properties.provenanceJson, source.properties)
             });
-            nodes.set(target.elementId, {
-                id: target.properties.id,
-                type: {
-                    id: target.properties.typeId,
-                    label: target.properties.typeLabel,
-                    attributes: parsePrimitiveDictionary(target.properties.typeAttributesJson)
-                },
-                sourceSystem: target.properties.sourceSystem,
-                properties: withoutKeys(target.properties, ['id', 'typeId', 'typeLabel', 'sourceSystem', 'typeAttributesJson', 'provenanceJson', 'createdAt', 'validFrom', 'validTo', 'transactionFrom', 'transactionTo']),
-                createdAt: target.properties.createdAt,
-                validFrom: target.properties.validFrom,
-                validTo: target.properties.validTo,
-                transactionFrom: target.properties.transactionFrom,
-                transactionTo: target.properties.transactionTo,
-                provenance: parseProvenance(target.properties.provenanceJson, target.properties)
-            });
-            edges.push({
-                id: relationship.properties.id,
-                source: source.properties.id,
-                target: target.properties.id,
-                relationship: relationship.properties.relationship,
-                properties: withoutKeys(relationship.properties, ['id', 'relationship', 'validFrom', 'validTo', 'transactionFrom', 'transactionTo']),
-                validFrom: relationship.properties.validFrom,
-                validTo: relationship.properties.validTo,
-                transactionFrom: relationship.properties.transactionFrom,
-                transactionTo: relationship.properties.transactionTo
-            });
+            if (target)
+                nodes.set(target.elementId, {
+                    id: target.properties.id,
+                    type: {
+                        id: target.properties.typeId,
+                        label: target.properties.typeLabel,
+                        attributes: parsePrimitiveDictionary(target.properties.typeAttributesJson)
+                    },
+                    sourceSystem: target.properties.sourceSystem,
+                    properties: withoutKeys(target.properties, ['id', 'typeId', 'typeLabel', 'sourceSystem', 'typeAttributesJson', 'provenanceJson', 'createdAt', 'validFrom', 'validTo', 'transactionFrom', 'transactionTo']),
+                    createdAt: target.properties.createdAt,
+                    validFrom: target.properties.validFrom,
+                    validTo: target.properties.validTo,
+                    transactionFrom: target.properties.transactionFrom,
+                    transactionTo: target.properties.transactionTo,
+                    provenance: parseProvenance(target.properties.provenanceJson, target.properties)
+                });
+            if (relationship && target)
+                edges.push({
+                    id: relationship.properties.id,
+                    source: source.properties.id,
+                    target: target.properties.id,
+                    relationship: relationship.properties.relationship,
+                    properties: withoutKeys(relationship.properties, ['id', 'relationship', 'validFrom', 'validTo', 'transactionFrom', 'transactionTo']),
+                    validFrom: relationship.properties.validFrom,
+                    validTo: relationship.properties.validTo,
+                    transactionFrom: relationship.properties.transactionFrom,
+                    transactionTo: relationship.properties.transactionTo
+                });
         }
         return { nodes: [...nodes.values()], edges };
     }

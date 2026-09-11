@@ -7,6 +7,7 @@ import type { GraphNode } from '@ontofabric/shared/types.js';
 
 type GraphChatAssistantProps = {
   onHighlightNodes: (nodeIds: string[]) => void;
+  id?: string;
 };
 
 type QueryResponse = {
@@ -17,7 +18,7 @@ type QueryResponse = {
 
 const api = axios.create({ baseURL: import.meta.env.VITE_API_URL ?? 'http://localhost:3001' });
 
-export function GraphChatAssistant({ onHighlightNodes }: GraphChatAssistantProps) {
+export function GraphChatAssistant({ onHighlightNodes, id }: GraphChatAssistantProps) {
   const [prompt, setPrompt] = useState('');
   const [response, setResponse] = useState<QueryResponse | null>(null);
   const [busy, setBusy] = useState(false);
@@ -40,7 +41,7 @@ export function GraphChatAssistant({ onHighlightNodes }: GraphChatAssistantProps
   };
 
   return (
-    <aside className="flex w-full shrink-0 flex-col rounded-[1.75rem] border border-white/10 bg-[#0c1525] lg:w-[330px]">
+    <aside id={id} className="flex w-full shrink-0 flex-col rounded-[1.75rem] border border-white/10 bg-[#0c1525] lg:w-[330px]">
       <div className="border-b border-white/10 p-5">
         <p className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-[0.2em] text-fuchsia-300"><Sparkles size={13} /> Graph assistant</p>
         <h3 className="mt-2 text-lg font-semibold text-white">Ask the ontology</h3>
