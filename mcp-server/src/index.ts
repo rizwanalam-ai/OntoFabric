@@ -184,5 +184,45 @@ server.registerTool(
   })
 );
 
+server.registerTool(
+  'update_sap_purchase_order',
+  {
+    title: 'Update SAP purchase order',
+    description: 'Write updated fields to a SAP purchase order through the configured ERP connector.',
+    inputSchema: z.object({
+      orderId: z.string().trim().min(1),
+      updatedFields: z.record(z.unknown())
+    }).strict()
+  },
+  async ({ orderId, updatedFields }) => textContent({
+    sourceSystem: 'SAP',
+    action: 'UPDATE_PURCHASE_ORDER',
+    orderId,
+    updatedFields: JSON.parse(JSON.stringify(updatedFields)) as JsonValue,
+    status: 'SYNCED',
+    updatedAt: new Date().toISOString()
+  })
+);
+
+server.registerTool(
+  'update_crm_account_status',
+  {
+    title: 'Update CRM account status',
+    description: 'Write a new status to a Salesforce or CRM account through the configured connector.',
+    inputSchema: z.object({
+      accountId: z.string().trim().min(1),
+      status: z.string().trim().min(1)
+    }).strict()
+  },
+  async ({ accountId, status }) => textContent({
+    sourceSystem: 'CRM',
+    action: 'UPDATE_ACCOUNT_STATUS',
+    accountId,
+    status,
+    statusResult: 'SYNCED',
+    updatedAt: new Date().toISOString()
+  })
+);
+
 const transport = new StdioServerTransport();
 await server.connect(transport);

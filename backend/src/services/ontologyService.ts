@@ -4,6 +4,7 @@ import { z } from 'zod';
 
 import { domainSchemas } from '@ontofabric/shared/domainSchemas.js';
 import { DEFAULT_TEMPORAL_END, type DomainContext, type GraphEdge, type GraphNode, type NodeProvenance, type PrimitiveDictionary } from '@ontofabric/shared/types.js';
+import { anonymizeText } from './anonymizationService.js';
 
 const primitive = z.union([z.string(), z.number(), z.boolean(), z.null()]);
 const primitiveDictionary = z.record(primitive);
@@ -82,8 +83,9 @@ const domainLabel = (domain: DomainContext): string => ({
 
 const safeNeo4jLabel = (label: string): string => label.replace(/[^A-Za-z0-9_]/g, '_');
 
-export const extractOntologyFromText = async (rawText: string, domain: DomainContext): Promise<{ nodes: GraphNode[]; edges: GraphEdge[] }> => {
+export const extractOntologyFromText = async (rawText: string, domain: DomainContext): Promise<{ nodes: GraphNode[]; edges: GraphEdge[]; privacy: { redactedCount: number; redactionId: string } }> => {
   const schema = domainSchemas[domain];
+  const anonymized = await anonymizeText(rawText, domain);
   const completion = await getOpenAiClient().chat.completions.create({
     model: process.env.OPENAI_MODEL ?? 'gpt-4o',
     temperature: 0,
@@ -104,7 +106,7 @@ export const extractOntologyFromText = async (rawText: string, domain: DomainCon
           'Return valid JSON matching exactly {"nodes": [...], "edges": [...]}. Do not return markdown or explanatory text.'
         ].join(' ')
       },
-      { role: 'user', content: rawText }
+      { role: 'user', content: anonymized.sanitizedText }
     ]
   });
 
@@ -129,7 +131,11 @@ export const extractOntologyFromText = async (rawText: string, domain: DomainCon
       domain,
       secondaryLabels: [...new Set([domainLabel(domain), node.type.label, ...node.secondaryLabels])]
     })),
-    edges: parsed.edges
+    edges: parsed.edges,
+    privacy: {
+      redactedCount: Object.keys(anonymized.redactionMap).length,
+      redactionId: anonymized.redactionId
+    }
   };
 };
 

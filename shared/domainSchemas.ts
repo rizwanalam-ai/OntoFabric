@@ -49,3 +49,7 @@ export const DOMAIN_SCHEMAS: Record<DomainContext, DomainSchemaConfig> = {
 };
 
 export const domainSchemas = DOMAIN_SCHEMAS;
+
+export const updateDomainSchema = (config: DomainSchemaConfig): void => {
+  domainSchemas[config.domain] = config;
+};

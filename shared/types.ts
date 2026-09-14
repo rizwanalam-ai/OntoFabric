@@ -37,6 +37,7 @@ export interface EntityType {
   id: string;
   label: string;
   attributes: PrimitiveDictionary;
+  attributeTypes?: Record<string, 'string' | 'number' | 'boolean' | 'date'>;
 }
 
 export interface RelationType {

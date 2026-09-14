@@ -3,6 +3,8 @@ import axios from 'axios';
 import { AlertCircle, ArrowUpRight, CheckCircle2, Database, FileSpreadsheet, FileText, Link2, LoaderCircle, Plus, RefreshCw, Trash2, Upload } from 'lucide-react';
 
 import type { DomainContext, GraphNode, Primitive } from '@ontofabric/shared/types.js';
+import { PrivacyShieldBadge } from './PrivacyShieldBadge';
+import { SchemaDriftBanner, type SchemaDriftResult } from './SchemaDriftBanner';
 
 type PropertyValueType = 'string' | 'number' | 'boolean' | 'null';
 type PropertyRow = { id: string; key: string; value: string; valueType: PropertyValueType };
@@ -60,6 +62,10 @@ export function IngestionPanel({ onRefresh, id, domain, graphNodes = [], entityL
   const [sourceNode, setSourceNode] = useState('');
   const [targetNode, setTargetNode] = useState('');
   const [relationship, setRelationship] = useState('');
+  const [driftTargetEntity, setDriftTargetEntity] = useState('Product');
+  const [driftSample, setDriftSample] = useState('{\n  "customerId": "C-1001",\n  "name": "Example"\n}');
+  const [driftResult, setDriftResult] = useState<SchemaDriftResult | null>(null);
+  const [redactedCount, setRedactedCount] = useState<number | null>(null);
   const propertyErrors = useMemo(() => validatePropertyRows(propertyRows), [propertyRows]);
   const entityOptions = [...new Set([...defaultEntityLabels, ...entityLabels])];
   const relationshipOptions = [...new Set([...defaultRelationshipNames, ...relationshipNames])];
@@ -82,7 +88,27 @@ export function IngestionPanel({ onRefresh, id, domain, graphNodes = [], entityL
     if (!filePath.trim()) {
       throw new Error('Enter a file path first.');
     }
-    await api.post('/api/ingest/file', { filePath: filePath.trim(), sourceType, domain });
+    const { data } = await api.post<{ schemaDrift?: SchemaDriftResult; privacy?: { redactedCount: number } }>('/api/ingest/file', { filePath: filePath.trim(), sourceType, domain, targetEntity: driftTargetEntity.trim() });
+    if (data.schemaDrift) setDriftResult(data.schemaDrift);
+    if (data.privacy) setRedactedCount(data.privacy.redactedCount);
+  });
+
+  const checkSchemaDrift = () => run('drift', async () => {
+    let incomingSample: Record<string, unknown>;
+    try {
+      const parsed = JSON.parse(driftSample) as unknown;
+      if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error('Sample must be a JSON object.');
+      incomingSample = parsed as Record<string, unknown>;
+    } catch (error) {
+      throw new Error(error instanceof Error ? error.message : 'Enter a valid JSON sample.');
+    }
+    const { data } = await api.post<SchemaDriftResult>('/api/schema/drift-check', {
+      sourceSystem: 'EXCEL',
+      incomingSample,
+      targetEntity: driftTargetEntity.trim()
+    });
+    setDriftResult(data);
+    return data.unmappedKeys.length > 0 ? 'Schema drift found. Review the notice above.' : 'Schema matches the selected ontology.';
   });
 
   const syncSap = async () => {
@@ -147,6 +173,8 @@ export function IngestionPanel({ onRefresh, id, domain, graphNodes = [], entityL
             <h2 className="text-[11px] font-bold uppercase tracking-[0.2em] text-slate-300">Source sync</h2>
           </div>
           <div className="mb-4 inline-flex rounded-full border border-cyan-300/25 bg-cyan-300/10 px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.12em] text-cyan-200">[Target Domain: {domain}]</div>
+          {redactedCount !== null && <div className="mb-4"><PrivacyShieldBadge redactedCount={redactedCount} /></div>}
+          {driftResult && <div className="mb-4"><SchemaDriftBanner result={driftResult} onDismiss={() => setDriftResult(null)} /></div>}
           <label className="text-xs text-slate-500" htmlFor="file-path">Document path</label>
           <input id="file-path" className={inputClass} value={filePath} onChange={(event) => setFilePath(event.target.value)} placeholder="C:\\data\\contracts.pdf" />
           <div className="mt-3 grid grid-cols-2 gap-2">
@@ -167,6 +195,17 @@ export function IngestionPanel({ onRefresh, id, domain, graphNodes = [], entityL
           <button type="button" className={`${buttonClass} mt-2 border border-white/10 text-slate-300 hover:bg-white/5`} disabled={Boolean(busy)} onClick={() => setNotice('CRM sync endpoint is ready for the next connector configuration.')}>
             <RefreshCw size={14} /> Sync CRM <ArrowUpRight size={13} className="ml-auto text-slate-500" />
           </button>
+          <div className="mt-5 border-t border-white/10 pt-5">
+            <div className="mb-3 flex items-center justify-between gap-3">
+              <div><p className="text-xs font-semibold text-slate-300">Schema drift check</p><p className="mt-1 text-[10px] leading-4 text-slate-500">Compare a source sample with an existing entity type.</p></div>
+              <span className="rounded-full border border-fuchsia-300/20 bg-fuchsia-300/10 px-2 py-1 text-[9px] font-bold uppercase tracking-[0.12em] text-fuchsia-200">Auto-heal &ge; 0.85</span>
+            </div>
+            <input className={inputClass} value={driftTargetEntity} onChange={(event) => setDriftTargetEntity(event.target.value)} placeholder="Target entity, e.g. Product" aria-label="Schema drift target entity" />
+            <textarea className={`${inputClass} min-h-24 resize-y font-mono text-[11px]`} value={driftSample} onChange={(event) => setDriftSample(event.target.value)} aria-label="Incoming schema sample" />
+            <button type="button" className={`${buttonClass} mt-2 border border-fuchsia-300/30 text-fuchsia-200 hover:bg-fuchsia-300/10`} disabled={Boolean(busy) || !driftTargetEntity.trim()} onClick={() => void checkSchemaDrift()}>
+              {busy === 'drift' ? <LoaderCircle size={14} className="animate-spin" /> : <RefreshCw size={14} />} Check schema drift
+            </button>
+          </div>
         </div>
 
         <div className="border-t border-white/10 pt-6">

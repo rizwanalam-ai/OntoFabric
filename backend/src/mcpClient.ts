@@ -42,7 +42,7 @@ const getClient = async (): Promise<Client> => {
   return clientPromise;
 };
 
-const callTool = async <T>(name: string, arguments_: Record<string, string>): Promise<T> => {
+const callTool = async <T>(name: string, arguments_: Record<string, unknown>): Promise<T> => {
   const result = await (await getClient()).callTool({ name, arguments: arguments_ }) as McpToolResult;
 
   if (result.isError) {
@@ -67,6 +67,16 @@ export const callErpRecords = (entityType: string, filterCriteria?: string) => c
 );
 
 export const callCrmContacts = (accountId: string) => callTool<unknown>('fetch_crm_contacts', { accountId });
+
+export const callSapPurchaseOrderUpdate = (orderId: string, updatedFields: Record<string, unknown>) => callTool<unknown>(
+  'update_sap_purchase_order',
+  { orderId, updatedFields }
+);
+
+export const callCrmAccountStatusUpdate = (accountId: string, status: string) => callTool<unknown>(
+  'update_crm_account_status',
+  { accountId, status }
+);
 
 export const closeMcpClient = async (): Promise<void> => {
   if (!clientPromise) {

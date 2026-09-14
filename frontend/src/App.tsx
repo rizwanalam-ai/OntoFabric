@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react';
 import axios from 'axios';
-import { Activity, ChevronLeft, ChevronRight, ClipboardCheck, Factory, Network, Search, Settings2, Sparkles } from 'lucide-react';
+import { Activity, ChevronLeft, ChevronRight, ClipboardCheck, Factory, Network, PencilRuler, Search, Settings2, Sparkles } from 'lucide-react';
 
-import type { DomainContext, GraphEdge, GraphNode } from '@ontofabric/shared/types.js';
+import type { DomainContext, GraphEdge, GraphNode, Primitive } from '@ontofabric/shared/types.js';
+import { ActionExecutionModal } from './components/ActionExecutionModal';
 import { DomainSelector } from './components/DomainSelector';
 import { GraphExplorer } from './components/GraphExplorer';
 import { GraphChatAssistant } from './components/GraphChatAssistant';
@@ -11,15 +12,17 @@ import { NodeDetailDrawer } from './components/NodeDetailDrawer';
 import { LineageInspectorModal } from './components/LineageInspectorModal';
 import { SMEMatchQueue, type PendingMatch } from './components/SMEMatchQueue';
 import { SopPlanningPanel } from './components/SopPlanningPanel';
+import { SchemaDesigner } from './components/SchemaDesigner';
 
 const api = axios.create({ baseURL: import.meta.env.VITE_API_URL ?? 'http://localhost:3001' });
 
 type GraphPayload = { nodes: GraphNode[]; edges: GraphEdge[] };
-type WorkspaceView = 'explorer' | 'approvals' | 'cockpit';
+type WorkspaceView = 'explorer' | 'approvals' | 'cockpit' | 'designer';
 
 export default function App() {
   const [graph, setGraph] = useState<GraphPayload>({ nodes: [], edges: [] });
   const [selectedNode, setSelectedNode] = useState<GraphNode | null>(null);
+  const [pendingAction, setPendingAction] = useState<{ node: GraphNode; changedFields: Record<string, Primitive> } | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [pendingMatches, setPendingMatches] = useState<PendingMatch[]>([]);
@@ -59,6 +62,13 @@ export default function App() {
   const removePendingMatch = async (pendingId: string) => {
     setPendingMatches((matches) => matches.filter((match) => match.pendingId !== pendingId));
   };
+  const applyLocalChanges = () => {
+    if (!pendingAction) return;
+    const { node, changedFields } = pendingAction;
+    const updateNode = (current: GraphNode): GraphNode => current.id === node.id ? { ...current, properties: { ...current.properties, ...changedFields } } : current;
+    setGraph((current) => ({ ...current, nodes: current.nodes.map(updateNode) }));
+    setSelectedNode(updateNode(node));
+  };
   const entityLabels = [...new Set(graph.nodes.map((node) => node.type.label))];
   const relationshipNames = [...new Set(graph.edges.map((edge) => edge.relationship))];
 
@@ -83,6 +93,7 @@ export default function App() {
         <div className="flex max-w-7xl gap-1" role="tablist">
           {[
             { id: 'explorer', label: 'Explorer', icon: Network },
+            { id: 'designer', label: 'Schema Designer', icon: PencilRuler },
             { id: 'approvals', label: 'Approvals', icon: ClipboardCheck },
             { id: 'cockpit', label: 'S&OP Cockpit', icon: Factory }
           ].map(({ id, label, icon: Icon }) => <button key={id} type="button" role="tab" aria-selected={activeView === id} onClick={() => setActiveView(id as WorkspaceView)} className={`flex items-center gap-2 border-b-2 px-3 py-3 text-xs font-semibold transition ${activeView === id ? 'border-cyan-300 text-cyan-200' : 'border-transparent text-slate-400 hover:border-white/30 hover:text-slate-200'}`}><Icon size={14} />{label}</button>)}
@@ -115,11 +126,12 @@ export default function App() {
             {isAssistantOpen && <GraphChatAssistant id="graph-assistant-panel" domain={selectedDomain} onHighlightNodes={setHighlightedNodeIds} />}
           </div>
           </section>
-        </> : <section className="flex min-w-0 flex-1 flex-col gap-4 p-4 md:p-6">
+        </> : activeView === 'designer' ? <SchemaDesigner key={selectedDomain} domain={selectedDomain} /> : <section className="flex min-w-0 flex-1 flex-col gap-4 p-4 md:p-6">
           {activeView === 'approvals' ? <SMEMatchQueue matches={pendingMatches} onResolved={removePendingMatch} /> : <SopPlanningPanel refreshKey={graph.nodes.length + graph.edges.length} />}
         </section>}
       </div>
-      <NodeDetailDrawer node={selectedNode} onClose={() => setSelectedNode(null)} onViewLineage={(node) => setLineageNode(node)} />
+      <NodeDetailDrawer node={selectedNode} onClose={() => setSelectedNode(null)} onViewLineage={(node) => setLineageNode(node)} onEditProperties={(node, changedFields) => setPendingAction({ node, changedFields })} />
+      {pendingAction && <ActionExecutionModal node={pendingAction.node} changedFields={pendingAction.changedFields} onClose={() => setPendingAction(null)} onLocalSave={() => { applyLocalChanges(); setPendingAction(null); }} onSyncSuccess={() => { applyLocalChanges(); }} />}
       <LineageInspectorModal node={lineageNode} onClose={() => setLineageNode(null)} />
     </main>
   );
