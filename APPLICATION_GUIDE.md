@@ -2,9 +2,10 @@
 
 OntoFabric is an enterprise ontology and knowledge-graph workspace for combining operational data, curated subject-matter-expert input, entity resolution, and S&OP planning data in one interface.
 
-The application has four workspace areas:
+The application has four workspace areas and an MCP integration layer:
 
 - **Explorer**: inspect the ontology graph, ingest source files, add SME entities and relationships, and ask grounded graph questions.
+- **Schema Designer**: visually define entity types, properties, primary keys, required fields, and relationships before saving the schema to Neo4j.
 - **Approvals**: review and resolve possible duplicate entities before they become canonical graph data.
 - **S&OP Cockpit**: review demand, inventory, supplier exposure, and production capacity.
 - **MCP source tools**: parse Excel/PDF files and retrieve ERP/CRM records through the Model Context Protocol server.
@@ -28,7 +29,7 @@ Excel / PDF / ERP / CRM / SME input
 
 | Package | Responsibility |
 | --- | --- |
-| `frontend` | React/Vite workspace, graph explorer, source sync, approvals, and S&OP views |
+| `frontend` | React/Vite workspace, graph explorer, visual schema designer, source sync, approvals, and S&OP views |
 | `backend` | Express API, Neo4j persistence, ontology extraction, graph queries, and entity resolution |
 | `mcp-server` | Official MCP TypeScript SDK server for source parsing and mock ERP/CRM retrieval |
 | `shared` | Shared graph, ontology, temporal, S&OP, and primitive-property contracts |
@@ -199,6 +200,63 @@ The assistant:
 - Returns an answer and generated Cypher.
 - Highlights the source nodes used to produce the answer.
 
+## Schema Designer Workflow
+
+The **Schema Designer** tab provides a visual editor for domain-specific ontology schemas. It uses an interactive React Flow canvas with a palette on the left and an inspector on the right.
+
+### 1. Add entity types
+
+Use the palette to:
+
+- Select **Add Custom Entity** to create an empty entity type.
+- Click or drag `Product`, `Supplier`, `Facility`, `Customer`, or `Order` onto the canvas.
+- Load complete industry starter sets with **Load SCOR**, **Load FIBO**, or **Load FHIR**.
+
+Entity cards display the node label, defined properties, primary-key indicators, and required-property markers. Nodes can be moved around the canvas, and **Auto Layout** arranges them into a grid.
+
+### 2. Edit an entity
+
+Select an entity card to open the inspector. The inspector supports:
+
+1. Renaming the node label.
+2. Adding and removing properties.
+3. Selecting `string`, `number`, `boolean`, or `date` as the primitive type.
+4. Marking properties as **Primary Key** or **Required**.
+5. Deleting the entity and its connected relationships.
+
+Use **Validate Schema** to check labels and property names before saving.
+
+### 3. Create relationships
+
+Drag from the source handle on one entity card to the target handle on another. The relationship dialog accepts:
+
+- A relationship name such as `STORED_AT`.
+- A cardinality of `1:N`, `M:N`, or `1:1`.
+
+Select an existing edge to edit its relationship name or cardinality in the relationship inspector. The bottom canvas toolbar also provides zoom, fit-view, auto-layout, validation, and save actions.
+
+### 4. Generate a schema from a prompt
+
+Enter a description in the prompt bar, for example:
+
+```text
+Create products, suppliers, and facilities with keys and storage relationships.
+```
+
+Select **Generate**. The frontend sends the request to `POST /api/schema/generate-from-prompt`, and the returned entity types are added to the canvas. When no usable OpenAI API key is configured, the backend returns a deterministic domain starter schema so the workflow remains available locally.
+
+### 5. Save the visual schema
+
+Select **Save** after validation. The backend:
+
+- Validates unique entity IDs and labels.
+- Validates relationship references and property key/required-field references.
+- Creates Neo4j property indexes for defined entity properties.
+- Creates Neo4j uniqueness constraints for primary-key properties.
+- Persists the visual node and relationship definitions as `DomainSchema`, `SchemaNodeType`, and `SchemaRelationType` records.
+
+Saving uses the currently selected domain context and updates the domain configuration used by ontology extraction and graph queries.
+
 ## Approvals Workflow
 
 The **Approvals** tab displays possible duplicate entities detected by the resolution service.
@@ -250,6 +308,8 @@ All backend routes are served from `http://localhost:3001`.
 | `GET` | `/api/ontology/graph` | Query the ontology graph, optionally at an ISO timestamp |
 | `POST` | `/api/sme/entity` | Persist exactly one SME node or relationship |
 | `POST` | `/api/chat/graph-query` | Run a grounded natural-language graph query |
+| `POST` | `/api/schema/generate-from-prompt` | Generate entity types from a natural-language schema description |
+| `POST` | `/api/schema/save` | Validate and persist a visual schema, including Neo4j indexes and uniqueness constraints |
 | `GET` | `/api/resolution/pending` | Load pending entity matches |
 | `POST` | `/api/resolution/approve` | Merge, link, or reject a pending match |
 | `GET` | `/api/sop/graph` | Load the S&OP graph |
