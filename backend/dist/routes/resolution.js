@@ -6,9 +6,15 @@ const approvalSchema = z.object({
     pendingId: z.string().trim().min(1),
     action: z.enum(['MERGE', 'REJECT', 'LINK'])
 }).strict();
-router.get('/pending', async (_request, response) => {
+const domainSchema = z.enum(['SUPPLY_CHAIN', 'FINANCE', 'HEALTHCARE', 'HR_ORG', 'CUSTOM']);
+router.get('/pending', async (request, response) => {
     try {
-        response.json({ matches: await getPendingMatches() });
+        const parsedDomain = request.query.domain === undefined ? undefined : domainSchema.safeParse(request.query.domain);
+        if (parsedDomain && !parsedDomain.success) {
+            response.status(400).json({ error: 'Invalid domain query parameter.', details: parsedDomain.error.flatten() });
+            return;
+        }
+        response.json({ matches: await getPendingMatches(parsedDomain?.data) });
     }
     catch (error) {
         response.status(503).json({ error: 'Unable to load pending matches.', message: error instanceof Error ? error.message : 'Request failed.' });

@@ -40,6 +40,8 @@ export const callExcelParser = (filePath) => callTool('parse_excel_source', { fi
 export const callPdfParser = (filePath) => callTool('parse_pdf_source', { filePath });
 export const callErpRecords = (entityType, filterCriteria) => callTool('fetch_erp_records', filterCriteria ? { entityType, filterCriteria } : { entityType });
 export const callCrmContacts = (accountId) => callTool('fetch_crm_contacts', { accountId });
+export const callSapPurchaseOrderUpdate = (orderId, updatedFields) => callTool('update_sap_purchase_order', { orderId, updatedFields });
+export const callCrmAccountStatusUpdate = (accountId, status) => callTool('update_crm_account_status', { accountId, status });
 export const closeMcpClient = async () => {
     if (!clientPromise) {
         return;

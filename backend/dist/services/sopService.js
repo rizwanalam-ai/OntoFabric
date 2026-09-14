@@ -6,11 +6,13 @@ export const SOP_RELATIONSHIP_TYPES = [
 const primitiveProperties = (value) => Object.fromEntries(Object.entries(value).filter(([, item]) => typeof item === 'string' || typeof item === 'number' || typeof item === 'boolean' || item === null));
 const resultNode = (node) => {
     const properties = node.properties;
-    const reserved = new Set(['id', 'sopLabel', 'typeId', 'typeLabel', 'typeAttributesJson', 'sourceSystem', 'createdAt', 'validFrom', 'validTo', 'transactionFrom', 'transactionTo', 'provenanceJson']);
+    const reserved = new Set(['id', 'sopLabel', 'typeId', 'typeLabel', 'domain', 'secondaryLabels', 'typeAttributesJson', 'sourceSystem', 'createdAt', 'validFrom', 'validTo', 'transactionFrom', 'transactionTo', 'provenanceJson']);
     const typeLabel = String(properties.sopLabel ?? properties.typeLabel ?? 'Entity');
     return {
         id: String(properties.id),
         type: { id: String(properties.typeId ?? typeLabel).toLowerCase(), label: typeLabel, attributes: {} },
+        domain: 'SUPPLY_CHAIN',
+        secondaryLabels: [],
         sourceSystem: properties.sourceSystem ?? 'SOP',
         properties: primitiveProperties(Object.fromEntries(Object.entries(properties).filter(([key]) => !reserved.has(key)))),
         createdAt: String(properties.createdAt ?? properties.validFrom ?? new Date().toISOString()),

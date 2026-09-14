@@ -38,6 +38,8 @@ export interface EntityType {
   label: string;
   attributes: PrimitiveDictionary;
   attributeTypes?: Record<string, 'string' | 'number' | 'boolean' | 'date'>;
+  primaryKeys?: string[];
+  requiredProperties?: string[];
 }
 
 export interface RelationType {

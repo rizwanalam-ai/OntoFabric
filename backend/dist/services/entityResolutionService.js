@@ -8,6 +8,8 @@ const primitiveDictionary = z.record(primitive);
 const graphNodeSchema = z.object({
     id: z.string(),
     type: z.object({ id: z.string(), label: z.string(), attributes: primitiveDictionary }),
+    domain: z.enum(['SUPPLY_CHAIN', 'FINANCE', 'HEALTHCARE', 'HR_ORG', 'CUSTOM']).default('CUSTOM'),
+    secondaryLabels: z.array(z.string()).default([]),
     sourceSystem: z.enum(['ERP', 'CRM', 'EXCEL', 'PDF', 'SME_INPUT']),
     properties: primitiveDictionary,
     createdAt: z.string(),
@@ -109,6 +111,8 @@ const nodeFromRecord = (raw) => {
     return graphNodeSchema.parse({
         id: properties.id,
         type: { id: properties.typeId, label: properties.typeLabel, attributes },
+        domain: properties.domain ?? 'CUSTOM',
+        secondaryLabels: properties.secondaryLabels ?? [],
         sourceSystem: properties.sourceSystem,
         properties: nodeProperties,
         createdAt: properties.createdAt,
@@ -176,10 +180,14 @@ export const findCandidateDuplicates = async (newNode, threshold = 0.70) => {
         await session.close();
     }
 };
-export const getPendingMatches = async () => {
+export const getPendingMatches = async (domain) => {
     const session = getNeo4jDriver().session();
     try {
-        const result = await session.executeRead((transaction) => transaction.run(`MATCH (p:PendingReview {status: 'PENDING'}) RETURN p ORDER BY p.createdAt DESC LIMIT 200`));
+        const result = await session.executeRead((transaction) => transaction.run(`MATCH (p:PendingReview {status: 'PENDING'})
+       WHERE $domain IS NULL
+         OR coalesce(apoc.convert.fromJsonMap(p.entityAJson).domain, 'CUSTOM') = $domain
+         OR coalesce(apoc.convert.fromJsonMap(p.entityBJson).domain, 'CUSTOM') = $domain
+       RETURN p ORDER BY p.createdAt DESC LIMIT 200`, { domain: domain ?? null }));
         return result.records.map((record) => {
             const properties = record.get('p').properties;
             return {

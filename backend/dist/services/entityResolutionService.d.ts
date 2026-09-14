@@ -11,5 +11,5 @@ export interface CandidateDuplicate {
 }
 export declare const calculateSimilarity: (entityA: GraphNode, entityB: GraphNode) => Promise<number>;
 export declare const findCandidateDuplicates: (newNode: GraphNode, threshold?: number) => Promise<CandidateDuplicate[]>;
-export declare const getPendingMatches: () => Promise<CandidateDuplicate[]>;
+export declare const getPendingMatches: (domain?: GraphNode["domain"]) => Promise<CandidateDuplicate[]>;
 export declare const resolvePendingMatch: (pendingId: string, action: MatchAction) => Promise<void>;

@@ -1,5 +1,6 @@
 import OpenAI from 'openai';
 import { z } from 'zod';
+import { domainSchemas } from '@ontofabric/shared/domainSchemas.js';
 import { getNeo4jDriver } from './ontologyService.js';
 const primitive = z.union([z.string(), z.number(), z.boolean(), z.null()]);
 const primitiveDictionary = z.record(primitive);
@@ -8,7 +9,7 @@ const getOpenAiClient = () => {
     openAiClient ??= new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
     return openAiClient;
 };
-const ontologySchema = `GraphNode: id, type { id, label, attributes }, sourceSystem, properties, createdAt, validFrom, validTo, transactionFrom, transactionTo.
+const ontologySchema = `GraphNode: id, type { id, label, attributes }, domain, secondaryLabels, sourceSystem, properties, createdAt, validFrom, validTo, transactionFrom, transactionTo.
 GraphEdge: id, source, target, relationship, properties, validFrom, validTo, transactionFrom, transactionTo.
 Entity nodes are stored with label Entity and typeLabel, sourceSystem, id, and primitive properties. Relationships are stored with type RELATED_TO and a relationship property.`;
 const normalizeValue = (value) => {
@@ -24,7 +25,7 @@ const normalizeValue = (value) => {
 };
 const nodeToGraphNode = (node) => {
     const properties = node.properties;
-    const reserved = new Set(['id', 'typeId', 'typeLabel', 'sourceSystem', 'typeAttributesJson', 'provenanceJson', 'createdAt', 'validFrom', 'validTo', 'transactionFrom', 'transactionTo']);
+    const reserved = new Set(['id', 'typeId', 'typeLabel', 'domain', 'secondaryLabels', 'sourceSystem', 'typeAttributesJson', 'provenanceJson', 'createdAt', 'validFrom', 'validTo', 'transactionFrom', 'transactionTo']);
     const nodeProperties = {};
     for (const [key, value] of Object.entries(properties)) {
         const normalized = normalizeValue(value);
@@ -42,6 +43,8 @@ const nodeToGraphNode = (node) => {
     return {
         id: String(properties.id),
         type: { id: String(properties.typeId), label: String(properties.typeLabel), attributes },
+        domain: properties.domain ?? 'CUSTOM',
+        secondaryLabels: Array.isArray(properties.secondaryLabels) ? properties.secondaryLabels.map(String) : [],
         sourceSystem: properties.sourceSystem,
         properties: nodeProperties,
         createdAt: String(properties.createdAt),
@@ -120,12 +123,17 @@ export const extractSubgraphContext = async (entityIds, hops = 2) => {
         await session.close();
     }
 };
-export const executeGroundedQuery = async (userPrompt) => {
-    const cypherQuery = await translateToCypher(userPrompt, ontologySchema);
+export const executeGroundedQuery = async (userPrompt, domain) => {
+    const domainSchema = domainSchemas[domain];
+    const domainPromptContext = `${ontologySchema}\nActive domain: ${domainSchema.displayName} (${domain}).\nDomain rules: ${domainSchema.systemPromptRules}\nAllowed node labels: ${domainSchema.allowedNodeLabels.join(', ') || 'custom labels'}.\nAllowed relationships: ${domainSchema.allowedRelationships.join(', ') || 'custom relationships'}.\nWhen querying Entity nodes, filter them with {domain: $domain}; use the $domain parameter for all applicable node matches.`;
+    const cypherQuery = await translateToCypher(userPrompt, domainPromptContext);
+    if (/\bEntity\b/i.test(cypherQuery) && !/domain\s*:\s*\$domain/i.test(cypherQuery)) {
+        throw new Error('Generated Cypher did not include the active domain filter.');
+    }
     validateReadOnlyCypher(cypherQuery);
     const session = getNeo4jDriver().session();
     try {
-        const result = await session.executeRead((transaction) => transaction.run(cypherQuery));
+        const result = await session.executeRead((transaction) => transaction.run(cypherQuery, { domain }));
         const serializedResults = result.records.map(serializeRecord);
         const sourceNodeMap = new Map();
         result.records.forEach((record) => Array.from(record.values()).forEach((value) => collectNodes(value, sourceNodeMap)));
@@ -136,7 +144,7 @@ export const executeGroundedQuery = async (userPrompt) => {
             messages: [
                 {
                     role: 'system',
-                    content: 'Answer only from the supplied graph results. Be concise and state when the graph does not contain enough information. Cite supporting node IDs inline using [node:<id>]. Do not invent entities, values, or citations.'
+                    content: `Answer only from the supplied graph results using ${domainSchema.displayName} terminology. ${domainSchema.systemPromptRules} Be concise and state when the graph does not contain enough information. Cite supporting node IDs inline using [node:<id>]. Do not invent entities, values, or citations.`
                 },
                 { role: 'user', content: `Question: ${userPrompt}\nGrounded graph result:\n${context}` }
             ]
