@@ -112,6 +112,18 @@ const persistSchema = async (domain: DomainContext, nodeTypes: z.infer<typeof en
 let openAiClient: OpenAI | undefined;
 const getOpenAiClient = (): OpenAI => { openAiClient ??= new OpenAI({ apiKey: process.env.OPENAI_API_KEY }); return openAiClient; };
 
+const localSchemaTemplates: Record<DomainContext, z.infer<typeof entityTypeSchema>[]> = {
+  SUPPLY_CHAIN: [
+    { id: 'ENTITY-Product', label: 'Product', attributes: { productId: '', name: '' }, attributeTypes: { productId: 'string', name: 'string' }, primaryKeys: ['productId'], requiredProperties: ['productId'] },
+    { id: 'ENTITY-Supplier', label: 'Supplier', attributes: { supplierId: '', name: '' }, attributeTypes: { supplierId: 'string', name: 'string' }, primaryKeys: ['supplierId'], requiredProperties: ['supplierId'] },
+    { id: 'ENTITY-Facility', label: 'Facility', attributes: { facilityId: '', name: '' }, attributeTypes: { facilityId: 'string', name: 'string' }, primaryKeys: ['facilityId'], requiredProperties: ['facilityId'] }
+  ],
+  FINANCE: [{ id: 'ENTITY-FinancialAccount', label: 'FinancialAccount', attributes: { accountId: '', balance: 0 }, attributeTypes: { accountId: 'string', balance: 'number' }, primaryKeys: ['accountId'], requiredProperties: ['accountId'] }],
+  HEALTHCARE: [{ id: 'ENTITY-Patient', label: 'Patient', attributes: { patientId: '', active: false }, attributeTypes: { patientId: 'string', active: 'boolean' }, primaryKeys: ['patientId'], requiredProperties: ['patientId'] }],
+  HR_ORG: [{ id: 'ENTITY-Employee', label: 'Employee', attributes: { employeeId: '', name: '' }, attributeTypes: { employeeId: 'string', name: 'string' }, primaryKeys: ['employeeId'], requiredProperties: ['employeeId'] }],
+  CUSTOM: [{ id: 'ENTITY-Entity', label: 'Entity', attributes: { id: '', name: '' }, attributeTypes: { id: 'string', name: 'string' }, primaryKeys: ['id'], requiredProperties: ['id'] }]
+};
+
 router.post('/custom', async (request, response) => {
   const parsedRequest = customSchema.safeParse(request.body);
   if (!parsedRequest.success) {
@@ -215,6 +227,11 @@ router.post('/generate-from-prompt', async (request, response) => {
     return;
   }
   try {
+    const apiKey = process.env.OPENAI_API_KEY?.trim();
+    if (!apiKey || apiKey === 'OPENAI_API_KEY' || apiKey === 'your_key') {
+      response.json({ nodeTypes: localSchemaTemplates[parsedRequest.data.domain] });
+      return;
+    }
     const completion = await getOpenAiClient().chat.completions.create({
       model: process.env.OPENAI_MODEL ?? 'gpt-4o', temperature: 0, response_format: { type: 'json_object' },
       messages: [{ role: 'system', content: 'Return JSON only with nodeTypes. Each nodeType has id, label, attributes, attributeTypes, primaryKeys, and requiredProperties. Primitive attributeTypes are string, number, boolean, or date.' }, { role: 'user', content: `Domain: ${parsedRequest.data.domain}\nSchema description: ${parsedRequest.data.prompt}` }]
