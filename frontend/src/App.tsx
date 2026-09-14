@@ -2,7 +2,8 @@ import { useEffect, useState } from 'react';
 import axios from 'axios';
 import { Activity, ChevronLeft, ChevronRight, ClipboardCheck, Factory, Network, Search, Settings2, Sparkles } from 'lucide-react';
 
-import type { GraphEdge, GraphNode } from '@ontofabric/shared/types.js';
+import type { DomainContext, GraphEdge, GraphNode } from '@ontofabric/shared/types.js';
+import { DomainSelector } from './components/DomainSelector';
 import { GraphExplorer } from './components/GraphExplorer';
 import { GraphChatAssistant } from './components/GraphChatAssistant';
 import { IngestionPanel } from './components/IngestionPanel';
@@ -27,11 +28,13 @@ export default function App() {
   const [isSourceSyncOpen, setIsSourceSyncOpen] = useState(true);
   const [isAssistantOpen, setIsAssistantOpen] = useState(true);
   const [activeView, setActiveView] = useState<WorkspaceView>('explorer');
-  const refreshGraph = async () => {
+  const [selectedDomain, setSelectedDomain] = useState<DomainContext>('SUPPLY_CHAIN');
+  const refreshGraph = async (domain: DomainContext = selectedDomain) => {
     try {
-      const [{ data: sopGraph }, { data: ontologyGraph }] = await Promise.all([
-        api.get<GraphPayload>('/api/sop/graph'),
-        api.get<GraphPayload>('/api/ontology/graph')
+      setLoading(true);
+      const [{ data: ontologyGraph }, { data: sopGraph }] = await Promise.all([
+        api.get<GraphPayload>('/api/ontology/graph', { params: { domain } }),
+        domain === 'SUPPLY_CHAIN' ? api.get<GraphPayload>('/api/sop/graph') : Promise.resolve({ data: { nodes: [], edges: [] } })
       ]);
       const mergedNodes = new Map(sopGraph.nodes.map((node) => [node.id, node]));
       ontologyGraph.nodes.forEach((node) => mergedNodes.set(node.id, node));
@@ -51,7 +54,7 @@ export default function App() {
     void api.get<{ matches: PendingMatch[] }>('/api/resolution/pending')
       .then(({ data }) => setPendingMatches(data.matches))
       .catch(() => setPendingMatches([]));
-  }, []);
+  }, [selectedDomain]);
 
   const removePendingMatch = async (pendingId: string) => {
     setPendingMatches((matches) => matches.filter((match) => match.pendingId !== pendingId));
@@ -69,9 +72,10 @@ export default function App() {
             <p className="mt-1 text-xs text-slate-500">Enterprise ontology command center</p>
           </div>
         </div>
-        <nav className="hidden items-center gap-2 text-xs text-slate-400 sm:flex">
-          <span className="flex items-center gap-2 rounded-full border border-emerald-300/20 bg-emerald-300/10 px-3 py-2 text-emerald-200"><Activity size={13} /> Live workspace</span>
-          <button type="button" aria-label="Search workspace" className="rounded-xl p-2.5 transition hover:bg-white/10 hover:text-white"><Search size={17} /></button>
+        <nav className="flex items-center gap-2 text-xs text-slate-400">
+          <span className="hidden items-center gap-2 rounded-full border border-emerald-300/20 bg-emerald-300/10 px-3 py-2 text-emerald-200 sm:flex"><Activity size={13} /> Live workspace</span>
+          <button type="button" aria-label="Search workspace" className="hidden rounded-xl p-2.5 transition hover:bg-white/10 hover:text-white sm:block"><Search size={17} /></button>
+          <DomainSelector domain={selectedDomain} onDomainChange={setSelectedDomain} />
           <button type="button" aria-label="Workspace settings" className="rounded-xl p-2.5 transition hover:bg-white/10 hover:text-white"><Settings2 size={17} /></button>
         </nav>
       </header>
@@ -86,7 +90,7 @@ export default function App() {
       </nav>
       <div className="flex min-h-[calc(100vh-112px)] flex-col lg:flex-row">
         {activeView === 'explorer' ? <>
-          {isSourceSyncOpen && <IngestionPanel id="source-sync-panel" onRefresh={refreshGraph} graphNodes={graph.nodes} entityLabels={entityLabels} relationshipNames={relationshipNames} />}
+          {isSourceSyncOpen && <IngestionPanel id="source-sync-panel" domain={selectedDomain} onRefresh={() => refreshGraph(selectedDomain)} graphNodes={graph.nodes} entityLabels={entityLabels} relationshipNames={relationshipNames} />}
           <section className="flex min-h-[650px] min-w-0 flex-1 flex-col gap-3 p-3 md:p-4">
           <div className="flex flex-wrap items-end justify-between gap-3">
             <div>
@@ -108,7 +112,7 @@ export default function App() {
               highlightedNodeIds={highlightedNodeIds}
               onNodeContextMenu={setLineageNode}
             />
-            {isAssistantOpen && <GraphChatAssistant id="graph-assistant-panel" onHighlightNodes={setHighlightedNodeIds} />}
+            {isAssistantOpen && <GraphChatAssistant id="graph-assistant-panel" domain={selectedDomain} onHighlightNodes={setHighlightedNodeIds} />}
           </div>
           </section>
         </> : <section className="flex min-w-0 flex-1 flex-col gap-4 p-4 md:p-6">

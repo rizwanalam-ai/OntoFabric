@@ -23,6 +23,8 @@ const primitiveDictionary = z.record(primitive);
 const graphNodeSchema = z.object({
   id: z.string(),
   type: z.object({ id: z.string(), label: z.string(), attributes: primitiveDictionary }),
+  domain: z.enum(['SUPPLY_CHAIN', 'FINANCE', 'HEALTHCARE', 'HR_ORG', 'CUSTOM']).default('CUSTOM'),
+  secondaryLabels: z.array(z.string()).default([]),
   sourceSystem: z.enum(['ERP', 'CRM', 'EXCEL', 'PDF', 'SME_INPUT']),
   properties: primitiveDictionary,
   createdAt: z.string(),
@@ -131,6 +133,8 @@ const nodeFromRecord = (raw: { properties: Record<string, unknown> }): GraphNode
   return graphNodeSchema.parse({
     id: properties.id,
     type: { id: properties.typeId, label: properties.typeLabel, attributes },
+    domain: properties.domain ?? 'CUSTOM',
+    secondaryLabels: properties.secondaryLabels ?? [],
     sourceSystem: properties.sourceSystem,
     properties: nodeProperties,
     createdAt: properties.createdAt,

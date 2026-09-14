@@ -6,5 +6,5 @@
     "outDir": "dist",
     "rootDir": "."
   },
-  "include": ["types.ts"]
+  "include": ["types.ts", "domainSchemas.ts"]
 }

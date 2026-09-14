@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react';
 import axios from 'axios';
 import { AlertCircle, ArrowUpRight, CheckCircle2, Database, FileSpreadsheet, FileText, Link2, LoaderCircle, Plus, RefreshCw, Trash2, Upload } from 'lucide-react';
 
-import type { GraphNode, Primitive } from '@ontofabric/shared/types.js';
+import type { DomainContext, GraphNode, Primitive } from '@ontofabric/shared/types.js';
 
 type PropertyValueType = 'string' | 'number' | 'boolean' | 'null';
 type PropertyRow = { id: string; key: string; value: string; valueType: PropertyValueType };
@@ -10,6 +10,7 @@ type SapSyncStatus = { state: 'idle' | 'syncing' | 'success' | 'error'; message:
 
 type IngestionPanelProps = {
   onRefresh: () => Promise<void>;
+  domain: DomainContext;
   id?: string;
   graphNodes?: Array<Pick<GraphNode, 'id' | 'type'>>;
   entityLabels?: string[];
@@ -49,7 +50,7 @@ const validatePropertyRows = (rows: PropertyRow[]) => {
   return errors;
 };
 
-export function IngestionPanel({ onRefresh, id, graphNodes = [], entityLabels = [], relationshipNames = [] }: IngestionPanelProps) {
+export function IngestionPanel({ onRefresh, id, domain, graphNodes = [], entityLabels = [], relationshipNames = [] }: IngestionPanelProps) {
   const [filePath, setFilePath] = useState('');
   const [busy, setBusy] = useState('');
   const [notice, setNotice] = useState('');
@@ -81,7 +82,7 @@ export function IngestionPanel({ onRefresh, id, graphNodes = [], entityLabels = 
     if (!filePath.trim()) {
       throw new Error('Enter a file path first.');
     }
-    await api.post('/api/ingest/file', { filePath: filePath.trim(), sourceType });
+    await api.post('/api/ingest/file', { filePath: filePath.trim(), sourceType, domain });
   });
 
   const syncSap = async () => {
@@ -89,7 +90,7 @@ export function IngestionPanel({ onRefresh, id, graphNodes = [], entityLabels = 
     setNotice('');
     setSapStatus({ state: 'syncing', message: 'Connecting to SAP Business Accelerator Hub...' });
     try {
-      const { data } = await api.post<{ count: number; entityType: string }>('/api/integrations/sap/sync');
+      const { data } = await api.post<{ count: number; entityType: string }>('/api/integrations/sap/sync', undefined, { params: { domain } });
       await onRefresh();
       setSapStatus({ state: 'success', count: data.count, message: `Imported ${data.count} ${data.entityType} record${data.count === 1 ? '' : 's'}.` });
     } catch (error) {
@@ -113,7 +114,7 @@ export function IngestionPanel({ onRefresh, id, graphNodes = [], entityLabels = 
         properties,
         createdAt: new Date().toISOString()
       }
-    });
+    }, { params: { domain } });
     setNodeLabel('');
     setPropertyRows([createPropertyRow()]);
   });
@@ -127,7 +128,7 @@ export function IngestionPanel({ onRefresh, id, graphNodes = [], entityLabels = 
         relationship: relationship.trim(),
         properties: {}
       }
-    });
+    }, { params: { domain } });
     setSourceNode('');
     setTargetNode('');
     setRelationship('');
@@ -145,6 +146,7 @@ export function IngestionPanel({ onRefresh, id, graphNodes = [], entityLabels = 
             <Upload size={15} className="text-cyan-300" />
             <h2 className="text-[11px] font-bold uppercase tracking-[0.2em] text-slate-300">Source sync</h2>
           </div>
+          <div className="mb-4 inline-flex rounded-full border border-cyan-300/25 bg-cyan-300/10 px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.12em] text-cyan-200">[Target Domain: {domain}]</div>
           <label className="text-xs text-slate-500" htmlFor="file-path">Document path</label>
           <input id="file-path" className={inputClass} value={filePath} onChange={(event) => setFilePath(event.target.value)} placeholder="C:\\data\\contracts.pdf" />
           <div className="mt-3 grid grid-cols-2 gap-2">

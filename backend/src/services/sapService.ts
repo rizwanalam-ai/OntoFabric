@@ -63,6 +63,8 @@ export const syncSapSandbox = async (): Promise<{ sourceType: 'ERP'; entityType:
   const nodes = records.map((record, index): GraphNode => ({
     id: `SAP-${entityType.toUpperCase()}-${recordId(record, index)}`,
     type: { id: `SAP-${entityType.toUpperCase()}`, label: entityType, attributes: {} },
+    domain: 'CUSTOM',
+    secondaryLabels: [],
     sourceSystem: 'ERP',
     properties: primitiveProperties(record),
     createdAt: timestamp,

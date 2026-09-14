@@ -3,7 +3,7 @@ import path from 'node:path';
 import { Router } from 'express';
 import { z } from 'zod';
 
-import { DEFAULT_TEMPORAL_END, type GraphEdge, type GraphNode, type SourceSystem } from '@ontofabric/shared/types.js';
+import { DEFAULT_TEMPORAL_END, type DomainContext, type GraphEdge, type GraphNode, type SourceSystem } from '@ontofabric/shared/types.js';
 import { getUserRole, redactNodeProperties } from '../middleware/abacMiddleware.js';
 import { callExcelParser, callPdfParser } from '../mcpClient.js';
 import {
@@ -18,10 +18,12 @@ import { syncSapSandbox } from '../services/sapService.js';
 const router = Router();
 const primitive = z.union([z.string(), z.number(), z.boolean(), z.null()]);
 const primitiveDictionary = z.record(primitive);
+const domainSchema = z.enum(['SUPPLY_CHAIN', 'FINANCE', 'HEALTHCARE', 'HR_ORG', 'CUSTOM']);
 
 const ingestFileSchema = z.object({
   filePath: z.string().trim().min(1),
-  sourceType: z.enum(['EXCEL', 'PDF']).optional()
+  sourceType: z.enum(['EXCEL', 'PDF']).optional(),
+  domain: domainSchema.optional()
 }).strict();
 
 const smeNodeSchema = z.object({
@@ -31,6 +33,8 @@ const smeNodeSchema = z.object({
     label: z.string().trim().min(1),
     attributes: primitiveDictionary.default({})
   }).strict(),
+  domain: domainSchema.default('CUSTOM'),
+  secondaryLabels: z.array(z.string()).default([]),
   sourceSystem: z.enum(['ERP', 'CRM', 'EXCEL', 'PDF', 'SME_INPUT']).default('SME_INPUT'),
   properties: primitiveDictionary.default({}),
   createdAt: z.string().trim().min(1).optional(),
@@ -65,7 +69,7 @@ const smeEntitySchema = z.object({
 
 const errorMessage = (error: unknown): string => error instanceof Error ? error.message : 'Request failed.';
 
-const graphQuerySchema = z.object({ prompt: z.string().trim().min(1).max(4000) }).strict();
+const graphQuerySchema = z.object({ prompt: z.string().trim().min(1).max(4000), domain: domainSchema.default('CUSTOM') }).strict();
 
 router.post('/chat/graph-query', async (request, response) => {
   const parsedRequest = graphQuerySchema.safeParse(request.body);
@@ -75,7 +79,7 @@ router.post('/chat/graph-query', async (request, response) => {
   }
 
   try {
-    const result = await executeGroundedQuery(parsedRequest.data.prompt);
+    const result = await executeGroundedQuery(parsedRequest.data.prompt, parsedRequest.data.domain);
     response.json({ ...result, sourceNodes: redactNodeProperties(result.sourceNodes, getUserRole(request)) });
   } catch (error) {
     response.status(502).json({ error: 'Grounded graph query failed.', message: errorMessage(error) });
@@ -89,7 +93,13 @@ router.post('/ingest/file', async (request, response) => {
     return;
   }
 
+  const queryDomain = domainSchema.safeParse(request.query.domain);
+  if (request.query.domain !== undefined && !queryDomain.success) {
+    response.status(400).json({ error: 'Invalid domain query parameter.', details: queryDomain.error.flatten() });
+    return;
+  }
   const { filePath, sourceType } = parsedRequest.data;
+  const domain: DomainContext = queryDomain.success ? queryDomain.data : parsedRequest.data.domain ?? 'CUSTOM';
   const detectedSourceType: SourceSystem = sourceType
     ?? (path.extname(filePath).toLowerCase() === '.pdf' ? 'PDF' : 'EXCEL');
 
@@ -100,11 +110,11 @@ router.post('/ingest/file', async (request, response) => {
     const rawText = detectedSourceType === 'PDF'
       ? z.object({ text: z.string() }).passthrough().parse(parsedSource).text
       : JSON.stringify(parsedSource);
-    const graph = await extractOntologyFromText(rawText);
-    const nodes = graph.nodes.map((node) => ({ ...node, sourceSystem: node.sourceSystem ?? detectedSourceType }));
+    const graph = await extractOntologyFromText(rawText, domain);
+    const nodes = graph.nodes.map((node) => ({ ...node, domain, sourceSystem: node.sourceSystem ?? detectedSourceType }));
 
     await persistGraphToNeo4j(nodes, graph.edges);
-    response.status(201).json({ sourceType: detectedSourceType, ...graph, nodes: redactNodeProperties(nodes, getUserRole(request)) });
+    response.status(201).json({ sourceType: detectedSourceType, domain, ...graph, nodes: redactNodeProperties(nodes, getUserRole(request)) });
   } catch (error) {
     response.status(502).json({ error: 'File ingestion failed.', message: errorMessage(error) });
   }
@@ -123,11 +133,19 @@ router.post('/integrations/sap/sync', async (_request, response) => {
 router.get('/ontology/graph', async (request, response) => {
   try {
     const asOfTimestamp = typeof request.query.asOfTimestamp === 'string' ? request.query.asOfTimestamp : undefined;
+    const domain = typeof request.query.domain === 'string' ? domainSchema.safeParse(request.query.domain) : undefined;
+    if (domain && !domain.success) {
+      response.status(400).json({ error: 'domain must be a supported domain context.', details: domain.error.flatten() });
+      return;
+    }
     if (asOfTimestamp && Number.isNaN(Date.parse(asOfTimestamp))) {
       response.status(400).json({ error: 'asOfTimestamp must be a valid ISO date.' });
       return;
     }
-    const graph = asOfTimestamp ? await queryGraphAtTimestamp(new Date(asOfTimestamp).toISOString()) : await queryGraphFromNeo4j();
+    const selectedDomain = domain?.success ? domain.data : undefined;
+    const graph = asOfTimestamp
+      ? await queryGraphAtTimestamp(new Date(asOfTimestamp).toISOString(), selectedDomain)
+      : await queryGraphFromNeo4j(selectedDomain);
     response.json({ ...graph, nodes: redactNodeProperties(graph.nodes as GraphNode[], getUserRole(request)) });
   } catch (error) {
     response.status(503).json({ error: 'Unable to query ontology graph.', message: errorMessage(error) });
@@ -149,8 +167,8 @@ router.post('/sme/entity', async (request, response) => {
         validFrom: parsedRequest.data.node.validFrom ?? parsedRequest.data.node.createdAt ?? new Date().toISOString(),
         validTo: parsedRequest.data.node.validTo ?? DEFAULT_TEMPORAL_END,
         transactionFrom: parsedRequest.data.node.transactionFrom ?? new Date().toISOString(),
-        transactionTo: parsedRequest.data.node.transactionTo ?? DEFAULT_TEMPORAL_END
-        ,provenance: parsedRequest.data.node.provenance ?? {
+        transactionTo: parsedRequest.data.node.transactionTo ?? DEFAULT_TEMPORAL_END,
+        provenance: parsedRequest.data.node.provenance ?? {
           sourceSystem: parsedRequest.data.node.sourceSystem ?? 'SME_INPUT',
           rawSourceId: parsedRequest.data.node.id,
           extractionTimestamp: new Date().toISOString()

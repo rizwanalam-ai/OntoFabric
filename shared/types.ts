@@ -4,6 +4,16 @@ export type PrimitiveDictionary = Record<string, Primitive>;
 
 export type SourceSystem = 'ERP' | 'CRM' | 'EXCEL' | 'PDF' | 'SME_INPUT' | 'SOP';
 
+export type DomainContext = 'SUPPLY_CHAIN' | 'FINANCE' | 'HEALTHCARE' | 'HR_ORG' | 'CUSTOM';
+
+export interface DomainSchemaConfig {
+  domain: DomainContext;
+  displayName: string;
+  allowedNodeLabels: string[];
+  allowedRelationships: string[];
+  systemPromptRules: string;
+}
+
 export const DEFAULT_TEMPORAL_END = '9999-12-31T23:59:59.999Z';
 
 export interface TemporalMetadata {
@@ -39,6 +49,8 @@ export interface RelationType {
 export interface GraphNode extends TemporalMetadata {
   id: string;
   type: EntityType;
+  domain: DomainContext;
+  secondaryLabels: string[];
   sourceSystem: SourceSystem;
   properties: PrimitiveDictionary;
   createdAt: string;

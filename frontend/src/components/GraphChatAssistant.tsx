@@ -3,9 +3,10 @@ import type { FormEvent } from 'react';
 import axios from 'axios';
 import { Bot, ChevronDown, LoaderCircle, Send, Sparkles } from 'lucide-react';
 
-import type { GraphNode } from '@ontofabric/shared/types.js';
+import type { DomainContext, GraphNode } from '@ontofabric/shared/types.js';
 
 type GraphChatAssistantProps = {
+  domain: DomainContext;
   onHighlightNodes: (nodeIds: string[]) => void;
   id?: string;
 };
@@ -18,7 +19,7 @@ type QueryResponse = {
 
 const api = axios.create({ baseURL: import.meta.env.VITE_API_URL ?? 'http://localhost:3001' });
 
-export function GraphChatAssistant({ onHighlightNodes, id }: GraphChatAssistantProps) {
+export function GraphChatAssistant({ domain, onHighlightNodes, id }: GraphChatAssistantProps) {
   const [prompt, setPrompt] = useState('');
   const [response, setResponse] = useState<QueryResponse | null>(null);
   const [busy, setBusy] = useState(false);
@@ -30,7 +31,7 @@ export function GraphChatAssistant({ onHighlightNodes, id }: GraphChatAssistantP
     setBusy(true);
     setError('');
     try {
-      const { data } = await api.post<QueryResponse>('/api/chat/graph-query', { prompt: prompt.trim() });
+      const { data } = await api.post<QueryResponse>('/api/chat/graph-query', { prompt: prompt.trim(), domain });
       setResponse(data);
       onHighlightNodes(data.sourceNodes.map((node) => node.id));
     } catch (requestError) {
