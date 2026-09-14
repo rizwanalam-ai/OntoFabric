@@ -3,9 +3,10 @@ import type { ReactNode } from 'react';
 import axios from 'axios';
 import { Boxes, Factory, PackageSearch, Truck } from 'lucide-react';
 
-import type { SopPlanningSummary } from '@ontofabric/shared/types.js';
+import type { DomainContext, SopPlanningSummary } from '@ontofabric/shared/types.js';
 
 type SopPlanningPanelProps = {
+  domain: DomainContext;
   refreshKey?: number;
 };
 
@@ -13,15 +14,20 @@ const api = axios.create({ baseURL: import.meta.env.VITE_API_URL ?? 'http://loca
 
 const emptySummary: SopPlanningSummary = { demand: [], inventory: [], supplierRisks: [], capacity: [] };
 
-export function SopPlanningPanel({ refreshKey = 0 }: SopPlanningPanelProps) {
+export function SopPlanningPanel({ domain, refreshKey = 0 }: SopPlanningPanelProps) {
   const [summary, setSummary] = useState<SopPlanningSummary>(emptySummary);
   const [error, setError] = useState('');
 
   useEffect(() => {
+    if (domain !== 'SUPPLY_CHAIN') {
+      setSummary(emptySummary);
+      setError('This cockpit is scoped to SUPPLY_CHAIN. Select Supply Chain to view S&OP metrics.');
+      return;
+    }
     void api.get<SopPlanningSummary>('/api/sop/summary')
       .then(({ data }) => { setSummary(data); setError(''); })
       .catch(() => setError('S&OP data is not available. Run the database seed command to load the planning example.'));
-  }, [refreshKey]);
+  }, [domain, refreshKey]);
 
   const inventoryAlerts = summary.inventory.filter((item) => item.onHand < item.reorderPoint).length;
   const totalDemand = summary.demand.reduce((total, item) => total + item.quantity, 0);

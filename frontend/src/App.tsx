@@ -54,7 +54,7 @@ export default function App() {
 
   useEffect(() => {
     void refreshGraph();
-    void api.get<{ matches: PendingMatch[] }>('/api/resolution/pending')
+    void api.get<{ matches: PendingMatch[] }>('/api/resolution/pending', { params: { domain: selectedDomain } })
       .then(({ data }) => setPendingMatches(data.matches))
       .catch(() => setPendingMatches([]));
   }, [selectedDomain]);
@@ -127,7 +127,7 @@ export default function App() {
           </div>
           </section>
         </> : activeView === 'designer' ? <SchemaDesigner key={selectedDomain} domain={selectedDomain} /> : <section className="flex min-w-0 flex-1 flex-col gap-4 p-4 md:p-6">
-          {activeView === 'approvals' ? <SMEMatchQueue matches={pendingMatches} onResolved={removePendingMatch} /> : <SopPlanningPanel refreshKey={graph.nodes.length + graph.edges.length} />}
+          {activeView === 'approvals' ? <SMEMatchQueue domain={selectedDomain} matches={pendingMatches} onResolved={removePendingMatch} /> : <SopPlanningPanel domain={selectedDomain} refreshKey={graph.nodes.length + graph.edges.length} />}
         </section>}
       </div>
       <NodeDetailDrawer node={selectedNode} onClose={() => setSelectedNode(null)} onViewLineage={(node) => setLineageNode(node)} onEditProperties={(node, changedFields) => setPendingAction({ node, changedFields })} />

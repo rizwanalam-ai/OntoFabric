@@ -207,11 +207,16 @@ export const findCandidateDuplicates = async (newNode: GraphNode, threshold = 0.
   }
 };
 
-export const getPendingMatches = async (): Promise<CandidateDuplicate[]> => {
+export const getPendingMatches = async (domain?: GraphNode['domain']): Promise<CandidateDuplicate[]> => {
   const session = getNeo4jDriver().session();
   try {
     const result = await session.executeRead((transaction) => transaction.run(
-      `MATCH (p:PendingReview {status: 'PENDING'}) RETURN p ORDER BY p.createdAt DESC LIMIT 200`
+      `MATCH (p:PendingReview {status: 'PENDING'})
+       WHERE $domain IS NULL
+         OR coalesce(apoc.convert.fromJsonMap(p.entityAJson).domain, 'CUSTOM') = $domain
+         OR coalesce(apoc.convert.fromJsonMap(p.entityBJson).domain, 'CUSTOM') = $domain
+       RETURN p ORDER BY p.createdAt DESC LIMIT 200`,
+      { domain: domain ?? null }
     ));
     return result.records.map((record) => {
       const properties = record.get('p').properties as Record<string, unknown>;
