@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import axios from 'axios';
-import { Activity, ChevronLeft, ChevronRight, ClipboardCheck, Factory, Network, PencilRuler, Search, Settings2, Sparkles } from 'lucide-react';
+import { ChevronLeft, ChevronRight, ClipboardCheck, Factory, Network, PencilRuler, Search, Settings2, Sparkles } from 'lucide-react';
 
 import type { DomainContext, GraphEdge, GraphNode, Primitive } from '@ontofabric/shared/types.js';
 import { ActionExecutionModal } from './components/ActionExecutionModal';
@@ -32,6 +32,7 @@ export default function App() {
   const [isAssistantOpen, setIsAssistantOpen] = useState(true);
   const [activeView, setActiveView] = useState<WorkspaceView>('explorer');
   const [selectedDomain, setSelectedDomain] = useState<DomainContext>('SUPPLY_CHAIN');
+  const [quickAction, setQuickAction] = useState<'entity' | 'relationship' | null>(null);
   const refreshGraph = async (domain: DomainContext = selectedDomain) => {
     try {
       setLoading(true);
@@ -78,12 +79,11 @@ export default function App() {
         <div className="flex items-center gap-4">
           <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-cyan-300 text-[#07111d] shadow-lg shadow-cyan-300/10"><Network size={20} /></div>
           <div>
-            <div className="flex items-center gap-2"><h1 className="text-lg font-semibold tracking-tight">OntoFabric</h1><span className="rounded-full border border-cyan-300/25 bg-cyan-300/10 px-2 py-0.5 text-[9px] font-bold uppercase tracking-[0.16em] text-cyan-200">Workspace</span></div>
+            <div className="flex items-center gap-2"><h1 className="text-lg font-semibold tracking-tight">OntoFabric</h1><span className="flex items-center gap-2 rounded-full border border-emerald-300/25 bg-emerald-300/10 px-2.5 py-1 text-[9px] font-bold uppercase tracking-[0.14em] text-emerald-100"><span className="h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-300" />OntoFabric Workspace (Live)</span></div>
             <p className="mt-1 text-xs text-slate-500">Enterprise ontology command center</p>
           </div>
         </div>
         <nav className="flex items-center gap-2 text-xs text-slate-400">
-          <span className="hidden items-center gap-2 rounded-full border border-emerald-300/20 bg-emerald-300/10 px-3 py-2 text-emerald-200 sm:flex"><Activity size={13} /> Live workspace</span>
           <button type="button" aria-label="Search workspace" className="hidden rounded-xl p-2.5 transition hover:bg-white/10 hover:text-white sm:block"><Search size={17} /></button>
           <DomainSelector domain={selectedDomain} onDomainChange={setSelectedDomain} />
           <button type="button" aria-label="Workspace settings" className="rounded-xl p-2.5 transition hover:bg-white/10 hover:text-white"><Settings2 size={17} /></button>
@@ -101,7 +101,7 @@ export default function App() {
       </nav>
       <div className="flex min-h-[calc(100vh-112px)] flex-col lg:flex-row">
         {activeView === 'explorer' ? <>
-          {isSourceSyncOpen && <IngestionPanel id="source-sync-panel" domain={selectedDomain} onRefresh={() => refreshGraph(selectedDomain)} graphNodes={graph.nodes} entityLabels={entityLabels} relationshipNames={relationshipNames} />}
+          {isSourceSyncOpen && <IngestionPanel id="source-sync-panel" domain={selectedDomain} onRefresh={() => refreshGraph(selectedDomain)} graphNodes={graph.nodes} entityLabels={entityLabels} relationshipNames={relationshipNames} quickAction={quickAction} onQuickActionHandled={() => setQuickAction(null)} />}
           <section className="flex min-h-[650px] min-w-0 flex-1 flex-col gap-3 p-3 md:p-4">
           <div className="flex flex-wrap items-end justify-between gap-3">
             <div>
@@ -122,6 +122,8 @@ export default function App() {
               onNodeClick={setSelectedNode}
               highlightedNodeIds={highlightedNodeIds}
               onNodeContextMenu={setLineageNode}
+              onCreateEntity={() => setQuickAction('entity')}
+              onAddRelationship={() => setQuickAction('relationship')}
             />
             {isAssistantOpen && <GraphChatAssistant id="graph-assistant-panel" domain={selectedDomain} onHighlightNodes={setHighlightedNodeIds} />}
           </div>
@@ -130,7 +132,7 @@ export default function App() {
           {activeView === 'approvals' ? <SMEMatchQueue domain={selectedDomain} matches={pendingMatches} onResolved={removePendingMatch} /> : <SopPlanningPanel domain={selectedDomain} refreshKey={graph.nodes.length + graph.edges.length} />}
         </section>}
       </div>
-      <NodeDetailDrawer node={selectedNode} onClose={() => setSelectedNode(null)} onViewLineage={(node) => setLineageNode(node)} onEditProperties={(node, changedFields) => setPendingAction({ node, changedFields })} />
+      <NodeDetailDrawer node={selectedNode} edges={graph.edges} onClose={() => setSelectedNode(null)} onViewLineage={(node) => setLineageNode(node)} onEditProperties={(node, changedFields) => setPendingAction({ node, changedFields })} />
       {pendingAction && <ActionExecutionModal node={pendingAction.node} changedFields={pendingAction.changedFields} onClose={() => setPendingAction(null)} onLocalSave={() => { applyLocalChanges(); setPendingAction(null); }} onSyncSuccess={() => { applyLocalChanges(); }} />}
       <LineageInspectorModal node={lineageNode} onClose={() => setLineageNode(null)} />
     </main>

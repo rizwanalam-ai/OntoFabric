@@ -24,7 +24,9 @@ const sourceColor: Record<GraphNode['sourceSystem'], string> = {
   ERP: 'text-blue-300 bg-blue-300/10 border-blue-300/20',
   CRM: 'text-emerald-300 bg-emerald-300/10 border-emerald-300/20',
   EXCEL: 'text-amber-300 bg-amber-300/10 border-amber-300/20',
+  CSV: 'text-sky-300 bg-sky-300/10 border-sky-300/20',
   PDF: 'text-amber-300 bg-amber-300/10 border-amber-300/20',
+  WORD: 'text-blue-300 bg-blue-300/10 border-blue-300/20',
   SME_INPUT: 'text-fuchsia-300 bg-fuchsia-300/10 border-fuchsia-300/20',
   SOP: 'text-teal-300 bg-teal-300/10 border-teal-300/20'
 };

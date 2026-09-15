@@ -2,7 +2,9 @@ export type Primitive = string | number | boolean | null;
 
 export type PrimitiveDictionary = Record<string, Primitive>;
 
-export type SourceSystem = 'ERP' | 'CRM' | 'EXCEL' | 'PDF' | 'SME_INPUT' | 'SOP';
+export type SourceSystem = 'ERP' | 'CRM' | 'EXCEL' | 'CSV' | 'PDF' | 'WORD' | 'SME_INPUT' | 'SOP';
+
+export type RelationalSourceType = 'POSTGRES' | 'SNOWFLAKE';
 
 export type DomainContext = 'SUPPLY_CHAIN' | 'FINANCE' | 'HEALTHCARE' | 'HR_ORG' | 'CUSTOM';
 
@@ -73,6 +75,22 @@ export interface IngestionPayload {
   filePathOrUrl: string;
   rawContent: string;
   metadata: PrimitiveDictionary;
+}
+
+export interface RelationalSyncRequest {
+  sourceType: RelationalSourceType;
+  tableName: string;
+  primaryKeyColumn: string;
+  entityLabel: string;
+  domain: DomainContext;
+  limit?: number;
+}
+
+export interface ForeignKeyMapping {
+  columnName: string;
+  foreignTableName: string;
+  foreignColumnName: string;
+  relationshipType: string;
 }
 
 export type SopNodeLabel = 'Product' | 'Component' | 'Facility' | 'WorkCenter' | 'Supplier' | 'Customer' | 'DemandForecast';

@@ -31,12 +31,12 @@ const configuredUrl = (): URL => {
 
 export const syncSapSandbox = async (): Promise<{ sourceType: 'ERP'; entityType: string; count: number; nodes: GraphNode[] }> => {
   const url = configuredUrl();
-  const headers: Record<string, string> = { Accept: 'application/json' };
+  const headers: Record<string, string> = { Accept: 'application/json', DataServiceVersion: '2.0' };
   const apiKey = process.env.SAP_API_KEY?.trim();
   const token = process.env.SAP_API_TOKEN?.trim();
   const username = process.env.SAP_USERNAME?.trim();
   const password = process.env.SAP_PASSWORD;
-  if (apiKey) headers.apikey = apiKey;
+  if (apiKey) headers.APIKey = apiKey;
   if (token) headers.Authorization = `Bearer ${token}`;
   if (username && password) headers.Authorization = `Basic ${Buffer.from(`${username}:${password}`).toString('base64')}`;
 

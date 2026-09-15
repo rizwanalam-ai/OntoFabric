@@ -8,6 +8,7 @@ import resolutionRouter from './routes/resolution.js';
 import { abacMiddleware } from './middleware/abacMiddleware.js';
 import sopRouter from './routes/sop.js';
 import schemaRouter from './routes/schema.js';
+import relationalRouter from './routes/relationalRoutes.js';
 
 dotenv.config({ path: path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../.env') });
 
@@ -21,6 +22,7 @@ app.use('/api', apiRouter);
 app.use('/api/resolution', resolutionRouter);
 app.use('/api/sop', sopRouter);
 app.use('/api/schema', schemaRouter);
+app.use('/api', relationalRouter);
 
 app.get('/health', (_request, response) => {
   response.json({ status: 'ok', service: 'ontofabric-backend' });

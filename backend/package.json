@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "node --use-system-ca ../node_modules/tsx/dist/cli.mjs watch src/index.ts",
+    "dev": "cross-env NODE_OPTIONS=--use-system-ca tsx watch src/index.ts",
     "db:init": "tsx src/db/init.ts",
     "db:seed:sop": "tsx src/db/seedSop.ts",
     "db:seed:planning": "tsx src/db/seedPlanningScenario.ts",
@@ -17,17 +17,24 @@
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.17.5",
     "@ontofabric/shared": "0.1.0",
+    "@types/multer": "^2.2.0",
+    "@types/pg": "^8.23.1",
     "cors": "^2.8.5",
     "dotenv": "^16.4.7",
     "express": "^5.1.0",
+    "mammoth": "^1.12.3",
+    "multer": "^2.4.0",
     "neo4j-driver": "^5.28.1",
     "openai": "^5.12.2",
+    "pg": "^8.23.0",
+    "snowflake-sdk": "^3.3.0",
     "xlsx": "^0.18.5",
     "zod": "^3.24.2"
   },
   "devDependencies": {
     "@types/cors": "^2.8.17",
     "@types/express": "^5.0.3",
+    "cross-env": "^10.1.0",
     "tsx": "^4.19.2",
     "typescript": "^5.7.2"
   }

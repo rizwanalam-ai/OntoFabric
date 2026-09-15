@@ -18,7 +18,7 @@ import {
   type NodeProps,
   type ReactFlowInstance
 } from '@xyflow/react';
-import { Expand, Fullscreen, GitBranch, LocateFixed, Minimize2, Search, Waypoints, ZoomIn, ZoomOut } from 'lucide-react';
+import { Expand, Fullscreen, GitBranch, LocateFixed, Minimize2, Plus, Search, Waypoints, ZoomIn, ZoomOut } from 'lucide-react';
 import '@xyflow/react/dist/style.css';
 
 import type { GraphEdge, GraphNode } from '@ontofabric/shared/types.js';
@@ -39,13 +39,17 @@ type GraphExplorerProps = {
   timeline?: ReactNode;
   highlightedNodeIds?: string[];
   onNodeContextMenu?: (node: GraphNode) => void;
+  onCreateEntity?: () => void;
+  onAddRelationship?: () => void;
 };
 
 const sourceStyles: Record<GraphNode['sourceSystem'], { accent: string; tint: string; label: string }> = {
   ERP: { accent: '#65d39b', tint: 'rgba(101, 211, 155, 0.16)', label: 'ERP' },
   CRM: { accent: '#68a8ff', tint: 'rgba(104, 168, 255, 0.16)', label: 'CRM' },
   EXCEL: { accent: '#f4bd62', tint: 'rgba(244, 189, 98, 0.16)', label: 'EXCEL' },
+  CSV: { accent: '#7dd3fc', tint: 'rgba(125, 211, 252, 0.16)', label: 'CSV' },
   PDF: { accent: '#f38ba8', tint: 'rgba(243, 139, 168, 0.16)', label: 'PDF' },
+  WORD: { accent: '#60a5fa', tint: 'rgba(96, 165, 250, 0.16)', label: 'WORD' },
   SME_INPUT: { accent: '#d69cff', tint: 'rgba(214, 156, 255, 0.16)', label: 'SME INPUT' },
   SOP: { accent: '#8bd5ca', tint: 'rgba(139, 213, 202, 0.16)', label: 'S&OP' }
 };
@@ -104,9 +108,9 @@ const layoutNodes = (nodes: Node<ExplorerNodeData>[], edges: Edge[], layout: Lay
   return nodes.map((node) => { const position = graph.node(node.id); return { ...node, position: { x: position.x - nodeWidth / 2, y: position.y - nodeHeight / 2 } }; });
 };
 
-export function GraphExplorer({ nodes, edges, onNodeClick, timeline, highlightedNodeIds = [], onNodeContextMenu }: GraphExplorerProps) {
+export function GraphExplorer({ nodes, edges, onNodeClick, timeline, highlightedNodeIds = [], onNodeContextMenu, onCreateEntity, onAddRelationship }: GraphExplorerProps) {
   const canvasRef = useRef<HTMLElement>(null);
-  const [contextMenu, setContextMenu] = useState<{ node: GraphNode; x: number; y: number } | null>(null);
+  const [contextMenu, setContextMenu] = useState<{ node?: GraphNode; x: number; y: number } | null>(null);
   const [layout, setLayout] = useState<LayoutMode>('force');
   const [search, setSearch] = useState('');
   const [expandedClusters, setExpandedClusters] = useState<Set<string>>(new Set());
@@ -143,13 +147,22 @@ export function GraphExplorer({ nodes, edges, onNodeClick, timeline, highlighted
     };
   }, [flowModel, reactFlow]);
 
+  const openContextMenu = (event: { clientX: number; clientY: number }, node?: GraphNode) => {
+    setContextMenu({ node, x: event.clientX, y: event.clientY });
+  };
+
   return <section ref={canvasRef} className={`${isFullscreen ? 'fixed inset-4 z-50 h-[calc(100vh-2rem)] w-[calc(100vw-2rem)]' : 'relative h-full min-h-[680px] min-w-0 flex-1'} overflow-hidden rounded-[1.75rem] border border-white/10 bg-[#0a1221] shadow-2xl shadow-black/20`}>
     {isFullscreen && <div className="fixed inset-0 -z-10 bg-[#030711]/90 backdrop-blur-sm" />}
     <div className="absolute left-3 right-3 top-3 z-20 flex flex-wrap items-center gap-2 rounded-2xl border border-white/10 bg-[#101a2c]/95 p-2 shadow-xl shadow-black/20 backdrop-blur-md"><div className="flex items-center gap-2 px-2 text-[10px] font-bold uppercase tracking-[0.18em] text-cyan-300"><Waypoints size={14} /> Explorer</div><button type="button" onClick={() => setLayout('force')} className={`flex items-center gap-1 rounded-lg px-2.5 py-2 text-xs ${layout === 'force' ? 'bg-cyan-300 text-[#06111d]' : 'text-slate-400 hover:bg-white/10'}`}><GitBranch size={13} /> Force</button><button type="button" onClick={() => setLayout('hierarchical')} className={`flex items-center gap-1 rounded-lg px-2.5 py-2 text-xs ${layout === 'hierarchical' ? 'bg-cyan-300 text-[#06111d]' : 'text-slate-400 hover:bg-white/10'}`}><GitBranch size={13} /> Dagre</button><div className="relative min-w-[180px] flex-1 md:max-w-xs"><Search size={13} className="absolute left-3 top-2.5 text-slate-500" /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Filter nodes" className="w-full rounded-lg border border-white/10 bg-[#0a1221] py-2 pl-8 pr-3 text-xs text-slate-200 outline-none placeholder:text-slate-600 focus:border-cyan-300/60" /></div><div className="flex items-center gap-1 rounded-lg border border-white/10 bg-[#0a1221]/70 p-1"><button type="button" onClick={() => void reactFlow?.zoomIn({ duration: 250 })} aria-label="Zoom In" title="Zoom In" className="flex items-center gap-1 rounded-md px-2 py-1.5 text-[10px] text-slate-300 hover:bg-white/10 hover:text-white"><ZoomIn size={13} /><span className="hidden lg:inline">Zoom In</span></button><button type="button" onClick={() => void reactFlow?.zoomOut({ duration: 250 })} aria-label="Zoom Out" title="Zoom Out" className="flex items-center gap-1 rounded-md px-2 py-1.5 text-[10px] text-slate-300 hover:bg-white/10 hover:text-white"><ZoomOut size={13} /><span className="hidden lg:inline">Zoom Out</span></button><button type="button" onClick={() => reactFlow?.setViewport({ x: 0, y: 0, zoom: 1 }, { duration: 300 })} aria-label="Reset View" title="Reset View" className="flex items-center gap-1 rounded-md px-2 py-1.5 text-[10px] text-slate-300 hover:bg-white/10 hover:text-white"><LocateFixed size={13} /><span className="hidden lg:inline">Reset View</span></button><button type="button" onClick={() => void reactFlow?.fitView(fitViewOptions)} aria-label="Center" title="Center" className="flex items-center gap-1 rounded-md px-2 py-1.5 text-[10px] text-slate-300 hover:bg-white/10 hover:text-white"><LocateFixed size={13} /><span className="hidden lg:inline">Center</span></button></div><button type="button" onClick={() => setIsFullscreen((current) => !current)} aria-label={isFullscreen ? 'Exit fullscreen graph' : 'Open fullscreen graph'} title={isFullscreen ? 'Exit fullscreen graph' : 'Open fullscreen graph'} className="rounded-lg p-2 text-slate-300 hover:bg-white/10 hover:text-white">{isFullscreen ? <Minimize2 size={15} /> : <Fullscreen size={15} />}</button></div>
   <div className="pointer-events-none absolute bottom-5 left-6 z-10"><p className="text-[10px] font-bold uppercase tracking-[0.22em] text-cyan-300">Knowledge graph</p><p className="mt-1 text-xs text-slate-500">{nodes.length} entities · {edges.length} relationships</p></div>
-  <div className="pointer-events-none absolute bottom-5 left-1/2 z-20 flex max-w-[calc(100%-12rem)] -translate-x-1/2 flex-wrap justify-center gap-1.5 rounded-xl border border-white/10 bg-[#101a2c]/90 p-2 shadow-xl backdrop-blur-md">{(['HEALTHCARE', 'FINANCE', 'SUPPLY_CHAIN', 'HR_ORG'] as const).map((domain) => <span key={domain} className="flex items-center gap-1.5 rounded-full px-2 py-1 text-[9px] font-semibold text-slate-200" style={{ backgroundColor: domainStyles[domain].tint }}><span className="h-2 w-2 rounded-full" style={{ backgroundColor: domainStyles[domain].accent }} />{domainStyles[domain].label}</span>)}</div>
-  {nodes.length === 0 ? <div className="flex h-full min-h-[680px] items-center justify-center text-sm text-slate-500">No graph records found in Neo4j.</div> : <ReactFlow nodes={flowModel.nodes} edges={flowModel.edges} nodeTypes={nodeTypes} edgeTypes={edgeTypes} fitView fitViewOptions={fitViewOptions} onInit={setReactFlow} nodesDraggable nodesConnectable={false} panOnDrag zoomOnScroll onNodeClick={(_, node) => node.data.graphNode && onNodeClick(node.data.graphNode)} onNodeContextMenu={(event, node) => { event.preventDefault(); if (node.data.graphNode) setContextMenu({ node: node.data.graphNode, x: event.clientX, y: event.clientY }); }} onPaneClick={() => setContextMenu(null)} proOptions={{ hideAttribution: true }} className="bg-[radial-gradient(circle_at_50%_45%,rgba(21,54,82,0.26),transparent_48%)]"><Background color="#24354b" gap={28} size={1} /><Controls className="!bottom-5 !left-5 !z-30 !m-0 !overflow-hidden !rounded-xl !border-white/10 !bg-[#101a2c] !fill-slate-300" /><MiniMap pannable zoomable nodeColor={(node) => domainStyles[(node.data as ExplorerNodeData | undefined)?.graphNode?.domain ?? 'CUSTOM'].accent} maskColor="rgba(4, 9, 18, 0.75)" className="!bottom-5 !right-5 !m-0 !rounded-xl !border-white/10 !bg-[#101a2c]" /></ReactFlow>}
-    {contextMenu && <div className="fixed z-40" style={{ left: contextMenu.x, top: contextMenu.y }}><button type="button" onClick={() => { onNodeContextMenu?.(contextMenu.node); setContextMenu(null); }} className="rounded-xl border border-cyan-300/20 bg-[#101a2c] px-3 py-2 text-xs font-semibold text-cyan-100 shadow-2xl shadow-black/40 hover:bg-cyan-300/10">View Provenance &amp; Lineage</button></div>}
+  <div className="pointer-events-none absolute right-5 top-20 z-20 flex max-w-[calc(100%-2rem)] flex-wrap justify-end gap-1.5 rounded-xl border border-white/10 bg-[#101a2c]/90 p-2 shadow-xl backdrop-blur-md">{(['HEALTHCARE', 'FINANCE', 'SUPPLY_CHAIN', 'HR_ORG'] as const).map((domain) => <span key={domain} className="flex items-center gap-1.5 rounded-full px-2 py-1 text-[9px] font-semibold text-slate-200" style={{ backgroundColor: domainStyles[domain].tint }}><span className="h-2 w-2 rounded-full" style={{ backgroundColor: domainStyles[domain].accent }} />{domainStyles[domain].label}</span>)}</div>
+  {nodes.length === 0 ? <div className="flex h-full min-h-[680px] items-center justify-center text-sm text-slate-500">No graph records found in Neo4j.</div> : <ReactFlow nodes={flowModel.nodes} edges={flowModel.edges} nodeTypes={nodeTypes} edgeTypes={edgeTypes} fitView fitViewOptions={fitViewOptions} onInit={setReactFlow} nodesDraggable nodesConnectable={false} panOnDrag zoomOnScroll onNodeClick={(_, node) => node.data.graphNode && onNodeClick(node.data.graphNode)} onNodeContextMenu={(event, node) => { event.preventDefault(); openContextMenu(event, node.data.graphNode); }} onPaneContextMenu={(event) => { event.preventDefault(); openContextMenu(event); }} onPaneClick={() => setContextMenu(null)} proOptions={{ hideAttribution: true }} className="bg-[radial-gradient(circle_at_50%_45%,rgba(21,54,82,0.26),transparent_48%)]"><Background color="#24354b" gap={28} size={1} /><Controls className="!bottom-5 !left-5 !z-30 !m-0 !overflow-hidden !rounded-xl !border-white/10 !bg-[#101a2c] !fill-slate-300" /><MiniMap pannable zoomable nodeColor={(node) => domainStyles[(node.data as ExplorerNodeData | undefined)?.graphNode?.domain ?? 'CUSTOM'].accent} maskColor="rgba(4, 9, 18, 0.75)" className="!bottom-5 !right-5 !m-0 !rounded-xl !border-white/10 !bg-[#101a2c]" /></ReactFlow>}
+    {contextMenu && <div className="fixed z-40 min-w-44 overflow-hidden rounded-xl border border-white/10 bg-[#101a2c] p-1 shadow-2xl shadow-black/40" style={{ left: contextMenu.x, top: contextMenu.y }} onMouseDown={(event) => event.stopPropagation()}>
+      {contextMenu.node && <button type="button" onClick={() => { onNodeContextMenu?.(contextMenu.node!); setContextMenu(null); }} className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-xs font-semibold text-cyan-100 hover:bg-cyan-300/10"><LocateFixed size={13} /> Inspect node</button>}
+      <button type="button" onClick={() => { onCreateEntity?.(); setContextMenu(null); }} className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-xs font-semibold text-slate-200 hover:bg-white/10"><Plus size={13} /> Create entity</button>
+      <button type="button" onClick={() => { onAddRelationship?.(); setContextMenu(null); }} className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-xs font-semibold text-slate-200 hover:bg-white/10"><GitBranch size={13} /> Add relationship</button>
+      <button type="button" onClick={() => { void reactFlow?.fitView(fitViewOptions); setContextMenu(null); }} className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-xs font-semibold text-slate-200 hover:bg-white/10"><LocateFixed size={13} /> Center view</button>
+    </div>}
     {timeline}
   </section>;
 }

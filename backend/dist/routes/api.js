@@ -1,6 +1,7 @@
 import path from 'node:path';
 import { Router } from 'express';
 import { z } from 'zod';
+import multer from 'multer';
 import { DEFAULT_TEMPORAL_END } from '@ontofabric/shared/types.js';
 import { getUserRole, redactNodeProperties } from '../middleware/abacMiddleware.js';
 import { callExcelParser, callPdfParser } from '../mcpClient.js';
@@ -10,14 +11,23 @@ import { rehydrateText } from '../services/anonymizationService.js';
 import { applyHealedMappings, detectSchemaDrift, resolveExpectedSchema } from '../services/schemaDriftService.js';
 import { executeLocalGraphUpdate, executeWriteBackAction } from '../services/actionEngineService.js';
 import { syncSapSandbox } from '../services/sapService.js';
+import { parseUploadedFile } from '../services/fileIngestionService.js';
 const router = Router();
+const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 25 * 1024 * 1024 } });
 const primitive = z.union([z.string(), z.number(), z.boolean(), z.null()]);
 const primitiveDictionary = z.record(primitive);
 const domainSchema = z.enum(['SUPPLY_CHAIN', 'FINANCE', 'HEALTHCARE', 'HR_ORG', 'CUSTOM']);
 const ingestFileSchema = z.object({
     filePath: z.string().trim().min(1),
-    sourceType: z.enum(['EXCEL', 'PDF']).optional(),
+    sourceType: z.enum(['EXCEL', 'CSV', 'PDF', 'WORD']).optional(),
     domain: domainSchema.optional(),
+    targetEntity: z.string().trim().min(1).optional()
+}).strict();
+const uploadFileSchema = z.object({
+    source: z.enum(['LOCAL', 'GOOGLE_DRIVE', 'DROPBOX']).default('LOCAL'),
+    remoteUrl: z.string().url().optional(),
+    fileName: z.string().trim().min(1).optional(),
+    domain: domainSchema.default('CUSTOM'),
     targetEntity: z.string().trim().min(1).optional()
 }).strict();
 const smeNodeSchema = z.object({
@@ -29,7 +39,7 @@ const smeNodeSchema = z.object({
     }).strict(),
     domain: domainSchema.default('CUSTOM'),
     secondaryLabels: z.array(z.string()).default([]),
-    sourceSystem: z.enum(['ERP', 'CRM', 'EXCEL', 'PDF', 'SME_INPUT']).default('SME_INPUT'),
+    sourceSystem: z.enum(['ERP', 'CRM', 'EXCEL', 'CSV', 'PDF', 'WORD', 'SME_INPUT']).default('SME_INPUT'),
     properties: primitiveDictionary.default({}),
     createdAt: z.string().trim().min(1).optional(),
     validFrom: z.string().datetime().optional(),
@@ -59,6 +69,25 @@ const smeEntitySchema = z.object({
     message: 'Provide exactly one of node or edge.'
 });
 const errorMessage = (error) => error instanceof Error ? error.message : 'Request failed.';
+const sharedDownloadUrl = (source, value) => {
+    const url = new URL(value);
+    if (url.protocol !== 'https:')
+        throw new Error('Shared file links must use HTTPS.');
+    if (source === 'GOOGLE_DRIVE') {
+        if (!['drive.google.com', 'docs.google.com'].includes(url.hostname))
+            throw new Error('Use a Google Drive or Docs shared link.');
+        const fileId = url.pathname.match(/\/d\/([^/]+)/)?.[1];
+        return fileId ? new URL(`https://drive.usercontent.google.com/download?id=${encodeURIComponent(fileId)}&export=download`) : url;
+    }
+    if (!url.hostname.endsWith('dropbox.com') && !url.hostname.endsWith('dropboxusercontent.com'))
+        throw new Error('Use a Dropbox shared link.');
+    url.searchParams.set('dl', '1');
+    return url;
+};
+const fileNameFromUrl = (url) => {
+    const candidate = path.basename(url.pathname);
+    return candidate && candidate !== '/' ? candidate : 'shared-source.bin';
+};
 const graphQuerySchema = z.object({ prompt: z.string().trim().min(1).max(4000), domain: domainSchema.default('CUSTOM') }).strict();
 const schemaDriftCheckSchema = z.object({
     sourceSystem: z.string().trim().min(1),
@@ -195,6 +224,67 @@ router.post('/ingest/file', async (request, response) => {
     }
     catch (error) {
         response.status(502).json({ error: 'File ingestion failed.', message: errorMessage(error) });
+    }
+});
+router.post('/ingest/upload', upload.single('file'), async (request, response) => {
+    const parsedRequest = uploadFileSchema.safeParse(request.body);
+    if (!parsedRequest.success) {
+        response.status(400).json({ error: 'Invalid file source request.', details: parsedRequest.error.flatten() });
+        return;
+    }
+    try {
+        let buffer;
+        let fileName = parsedRequest.data.fileName ?? 'source.bin';
+        let sourceReference = parsedRequest.data.source;
+        if (parsedRequest.data.source === 'LOCAL') {
+            if (!request.file)
+                throw new Error('Select a PDF, Excel, CSV, or Word file first.');
+            buffer = request.file.buffer;
+            fileName = request.file.originalname;
+        }
+        else {
+            if (!parsedRequest.data.remoteUrl)
+                throw new Error('Provide a shared file link.');
+            const downloadUrl = sharedDownloadUrl(parsedRequest.data.source, parsedRequest.data.remoteUrl);
+            const remoteResponse = await fetch(downloadUrl);
+            if (!remoteResponse.ok)
+                throw new Error(`Unable to download shared file (${remoteResponse.status}).`);
+            const contentLength = Number(remoteResponse.headers.get('content-length') ?? 0);
+            if (contentLength > 25 * 1024 * 1024)
+                throw new Error('The shared file exceeds the 25 MB upload limit.');
+            buffer = Buffer.from(await remoteResponse.arrayBuffer());
+            const disposition = remoteResponse.headers.get('content-disposition')?.match(/filename="?([^";]+)"?/i)?.[1];
+            fileName = parsedRequest.data.fileName ?? disposition ?? fileNameFromUrl(downloadUrl);
+            sourceReference = parsedRequest.data.source;
+        }
+        const parsedFile = await parseUploadedFile(buffer, fileName);
+        let sourceForExtraction = parsedFile.parsedSource;
+        let schemaDrift;
+        if (parsedRequest.data.targetEntity) {
+            try {
+                const expectedSchema = await resolveExpectedSchema(parsedRequest.data.targetEntity);
+                const samples = parsedFile.sourceType === 'PDF' || parsedFile.sourceType === 'WORD'
+                    ? [parsedFile.parsedSource]
+                    : [parsedFile.parsedSource];
+                schemaDrift = await detectSchemaDrift(samples, expectedSchema, parsedFile.sourceType);
+                if (Object.keys(schemaDrift.healedMappings).length > 0 && Array.isArray(sourceForExtraction)) {
+                    sourceForExtraction = applyHealedMappings(sourceForExtraction, schemaDrift.healedMappings);
+                }
+            }
+            catch {
+                // Schema drift is advisory and must not block file ingestion.
+            }
+        }
+        const rawText = parsedFile.sourceType === 'PDF' || parsedFile.sourceType === 'WORD'
+            ? z.object({ text: z.string() }).passthrough().parse(sourceForExtraction).text
+            : JSON.stringify(sourceForExtraction);
+        const graph = await extractOntologyFromText(rawText, parsedRequest.data.domain);
+        const nodes = graph.nodes.map((node) => ({ ...node, domain: parsedRequest.data.domain, sourceSystem: node.sourceSystem ?? parsedFile.sourceType }));
+        await persistGraphToNeo4j(nodes, graph.edges);
+        response.status(201).json({ source: sourceReference, fileName, sourceType: parsedFile.sourceType, domain: parsedRequest.data.domain, schemaDrift, ...graph, nodes: redactNodeProperties(nodes, getUserRole(request)) });
+    }
+    catch (error) {
+        response.status(502).json({ error: 'File upload ingestion failed.', message: errorMessage(error) });
     }
 });
 router.post('/integrations/sap/sync', async (_request, response) => {
