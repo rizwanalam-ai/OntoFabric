@@ -52,6 +52,16 @@ The backend defaults to:
 
 Use environment variables to override these defaults. Keep secrets in a local `.env` file; do not commit it.
 
+For production, build and start the backend from the current source so the AI settings route is included:
+
+```bash
+npm run build --workspace @ontofabric/shared
+npm run build --workspace @ontofabric/backend
+npm run start --workspace @ontofabric/backend
+```
+
+Set the frontend build variable `VITE_API_URL` to the deployed backend origin when frontend and backend use different hosts. When it is omitted in a production build, the settings panel uses the current browser origin and therefore requires the frontend host to proxy `/api/*` to the backend.
+
 ### AI provider configuration
 
 The backend uses an OpenAI-compatible client and supports OpenAI, Google Gemini, and DeepSeek. OpenAI remains the default for existing installations. Select the chat provider and model with:

@@ -1,8 +1,7 @@
 import { useEffect, useState } from 'react';
 import axios from 'axios';
 import { Check, KeyRound, LoaderCircle, Save, Settings2, X } from 'lucide-react';
-
-const api = axios.create({ baseURL: import.meta.env.VITE_API_URL ?? 'http://localhost:3001' });
+import { api } from '../api';
 
 type Provider = {
   id: 'openai' | 'gemini' | 'deepseek';

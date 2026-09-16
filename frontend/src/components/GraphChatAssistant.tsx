@@ -2,6 +2,7 @@ import { useState } from 'react';
 import type { FormEvent } from 'react';
 import axios from 'axios';
 import { Bot, ChevronDown, LoaderCircle, Send, Sparkles } from 'lucide-react';
+import { api } from '../api';
 
 import type { DomainContext, GraphNode } from '@ontofabric/shared/types.js';
 
@@ -16,8 +17,6 @@ type QueryResponse = {
   cypherQuery: string;
   sourceNodes: GraphNode[];
 };
-
-const api = axios.create({ baseURL: import.meta.env.VITE_API_URL ?? 'http://localhost:3001' });
 
 export function GraphChatAssistant({ domain, onHighlightNodes, id }: GraphChatAssistantProps) {
   const [prompt, setPrompt] = useState('');

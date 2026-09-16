@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import type { ReactNode } from 'react';
 import axios from 'axios';
 import { Boxes, Factory, PackageSearch, Truck } from 'lucide-react';
+import { api } from '../api';
 
 import type { DomainContext, SopPlanningSummary } from '@ontofabric/shared/types.js';
 
@@ -9,8 +10,6 @@ type SopPlanningPanelProps = {
   domain: DomainContext;
   refreshKey?: number;
 };
-
-const api = axios.create({ baseURL: import.meta.env.VITE_API_URL ?? 'http://localhost:3001' });
 
 const emptySummary: SopPlanningSummary = { demand: [], inventory: [], supplierRisks: [], capacity: [] };
 

@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import axios from 'axios';
 import { Check, ChevronLeft, ChevronRight, Link2, LoaderCircle, ShieldAlert, X } from 'lucide-react';
+import { api } from '../api';
 
 import type { DomainContext, GraphNode } from '@ontofabric/shared/types.js';
 
@@ -66,7 +67,7 @@ export function SMEMatchQueue({ matches, domain, onResolved }: SMEMatchQueueProp
     setBusy(action);
     setError('');
     try {
-      await axios.post(`${import.meta.env.VITE_API_URL ?? 'http://localhost:3001'}/api/resolution/approve`, { pendingId: match.pendingId, action });
+      await api.post('/api/resolution/approve', { pendingId: match.pendingId, action });
       await onResolved(match.pendingId);
       setIndex((current) => Math.min(current, Math.max(0, matches.length - 2)));
     } catch (requestError) {

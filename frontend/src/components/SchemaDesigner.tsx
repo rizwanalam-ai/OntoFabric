@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { addEdge, Background, Controls, MarkerType, ReactFlow, type Connection, type Edge, type Node, type NodeChange } from '@xyflow/react';
 import { Bot, Boxes, Check, Database, GitBranch, Plus, Save, Trash2, WandSparkles } from 'lucide-react';
 import axios from 'axios';
+import { api } from '../api';
 
 import type { DomainContext, EntityType, Primitive, RelationType } from '@ontofabric/shared/types.js';
 import { EntityNodeComponent, type EntityNodeData } from './EntityNodeComponent';
@@ -11,7 +12,6 @@ type PropertyType = 'string' | 'number' | 'boolean' | 'date';
 type DesignerNode = Node<EntityNodeData, 'entity'>;
 type SchemaDesignerProps = { domain: DomainContext };
 
-const api = axios.create({ baseURL: import.meta.env.VITE_API_URL ?? 'http://localhost:3001' });
 const nodeTypes = { entity: EntityNodeComponent };
 const propertyTypes: PropertyType[] = ['string', 'number', 'boolean', 'date'];
 const presetTemplates: Record<string, Array<[string, Array<[string, PropertyType]>]>> = {

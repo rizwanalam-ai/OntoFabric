@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import axios from 'axios';
 import { CheckCircle2, CloudCog, LoaderCircle, Save, X } from 'lucide-react';
+import { api } from '../api';
 
 import type { GraphNode, Primitive } from '@ontofabric/shared/types.js';
 
@@ -13,8 +14,6 @@ type ActionExecutionModalProps = {
 };
 
 type ExecutionState = 'idle' | 'pending' | 'success' | 'error';
-const api = axios.create({ baseURL: import.meta.env.VITE_API_URL ?? 'http://localhost:3001' });
-
 export function ActionExecutionModal({ node, changedFields, onClose, onLocalSave, onSyncSuccess }: ActionExecutionModalProps) {
   const [state, setState] = useState<ExecutionState>('idle');
   const [error, setError] = useState('');

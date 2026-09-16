@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import axios from 'axios';
 import { ChevronLeft, ChevronRight, ClipboardCheck, Factory, Network, PencilRuler, Search, Settings2, Sparkles } from 'lucide-react';
+import { api } from './api';
 
 import type { DomainContext, GraphEdge, GraphNode, Primitive } from '@ontofabric/shared/types.js';
 import { ActionExecutionModal } from './components/ActionExecutionModal';
@@ -14,8 +15,6 @@ import { SMEMatchQueue, type PendingMatch } from './components/SMEMatchQueue';
 import { SopPlanningPanel } from './components/SopPlanningPanel';
 import { SchemaDesigner } from './components/SchemaDesigner';
 import { AiSettingsModal } from './components/AiSettingsModal';
-
-const api = axios.create({ baseURL: import.meta.env.VITE_API_URL ?? 'http://localhost:3001' });
 
 type GraphPayload = { nodes: GraphNode[]; edges: GraphEdge[] };
 type WorkspaceView = 'explorer' | 'approvals' | 'cockpit' | 'designer';

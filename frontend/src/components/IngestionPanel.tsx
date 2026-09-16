@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import axios from 'axios';
 import { AlertCircle, ArrowUpRight, CheckCircle2, Cloud, Database, FileSpreadsheet, FileText, Link2, LoaderCircle, Plus, RefreshCw, Snowflake, Trash2, Upload, X } from 'lucide-react';
+import { api } from '../api';
 
 import type { DomainContext, GraphNode, Primitive } from '@ontofabric/shared/types.js';
 import { PrivacyShieldBadge } from './PrivacyShieldBadge';
@@ -24,7 +25,6 @@ type IngestionPanelProps = {
   onQuickActionHandled?: () => void;
 };
 
-const api = axios.create({ baseURL: import.meta.env.VITE_API_URL ?? 'http://localhost:3001' });
 const defaultEntityLabels = ['Product', 'Component', 'Facility', 'WorkCenter', 'Supplier', 'Customer', 'DemandForecast'];
 const defaultRelationshipNames = ['HAS_DEMAND', 'FOR_PRODUCT', 'REQUIRES_BOM', 'STORED_AT', 'PRODUCED_AT', 'SUPPLIED_BY', 'SHIPPED_TO', 'FULFILLED_BY'];
 
