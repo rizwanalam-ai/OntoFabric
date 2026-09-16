@@ -29,7 +29,10 @@ const sourceColor: Record<GraphNode['sourceSystem'], string> = {
   PDF: 'text-amber-300 bg-amber-300/10 border-amber-300/20',
   WORD: 'text-blue-300 bg-blue-300/10 border-blue-300/20',
   SME_INPUT: 'text-fuchsia-300 bg-fuchsia-300/10 border-fuchsia-300/20',
-  SOP: 'text-teal-300 bg-teal-300/10 border-teal-300/20'
+  SOP: 'text-teal-300 bg-teal-300/10 border-teal-300/20',
+  POSTGRES: 'text-blue-300 bg-blue-300/10 border-blue-300/20',
+  SNOWFLAKE: 'text-sky-300 bg-sky-300/10 border-sky-300/20',
+  DATABRICKS: 'text-orange-300 bg-orange-300/10 border-orange-300/20'
 };
 
 const displayValue = (value: unknown): string => value === null || value === undefined ? 'Not provided' : String(value);

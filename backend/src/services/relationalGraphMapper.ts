@@ -1,4 +1,5 @@
 import type { ForeignKeyMapping, RelationalSyncRequest } from '@ontofabric/shared/types.js';
+import { DEFAULT_TEMPORAL_END } from '@ontofabric/shared/types.js';
 import { getNeo4jDriver } from './ontologyService.js';
 
 const safeLabel = (value: string, name: string): string => {
@@ -30,7 +31,17 @@ const nodeCypher = `
   SET n += row,
       n.sourceSystem = $sourceType,
       n.domain = $domain,
-      n.updatedAt = timestamp()
+  n.typeId = $entityLabel,
+  n.typeLabel = $entityLabel,
+  n.secondaryLabels = [$domain, $entityLabel],
+  n.typeAttributesJson = '{}',
+  n.createdAt = $syncedAt,
+  n.validFrom = $syncedAt,
+  n.validTo = $temporalEnd,
+  n.transactionFrom = $syncedAt,
+  n.transactionTo = $temporalEnd,
+  n.provenanceJson = $provenanceJson,
+  n.updatedAt = timestamp()
   WITH n, row
   CALL apoc.create.addLabels(n, [$domain, $entityLabel]) YIELD node
   RETURN count(node) AS count
@@ -56,7 +67,10 @@ export const syncRelationalTableToNeo4j = async (
         pk: primaryKeyColumn,
         sourceType: payload.sourceType,
         domain,
-        entityLabel
+        entityLabel,
+        syncedAt: new Date().toISOString(),
+        temporalEnd: DEFAULT_TEMPORAL_END,
+        provenanceJson: JSON.stringify({ sourceSystem: payload.sourceType, extractionTimestamp: new Date().toISOString(), mcpTool: `${payload.sourceType.toLowerCase()}Sync` })
       });
       const nodeCount = nodeResult.records[0]?.get('count').toNumber() ?? 0;
       const relationshipCounts: Record<string, number> = {};
@@ -70,7 +84,12 @@ export const syncRelationalTableToNeo4j = async (
           WITH row WHERE row[$fkCol] IS NOT NULL
           MATCH (source:Entity {id: toString(row[$pk])})
           MATCH (target:Entity {id: toString(row[$fkCol])})
-          MERGE (source)-[r:${relationshipType}]->(target)
+            MERGE (source)-[r:${relationshipType} {id: toString(row[$pk]) + '-${relationshipType}-' + toString(row[$fkCol])}]->(target)
+            SET r.relationship = '${relationshipType}',
+              r.validFrom = source.validFrom,
+              r.validTo = source.validTo,
+              r.transactionFrom = source.transactionFrom,
+              r.transactionTo = source.transactionTo
           RETURN count(r) AS count
         `;
         const relationshipResult = await transaction.run(relationshipCypher, {

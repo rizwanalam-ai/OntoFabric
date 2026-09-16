@@ -238,14 +238,20 @@ export const queryGraphAtTimestamp = async (asOfDate, domain) => {
     const session = getNeo4jDriver().session();
     try {
         const result = await session.executeRead((transaction) => transaction.run(`MATCH (n)
-       WHERE n.validFrom <= $asOfDate AND n.validTo > $asOfDate
-         AND n.transactionFrom <= $asOfDate AND n.transactionTo > $asOfDate
+       WHERE coalesce(n.validFrom, n.createdAt, '1970-01-01T00:00:00.000Z') <= $asOfDate
+         AND coalesce(n.validTo, '9999-12-31T23:59:59.999Z') > $asOfDate
+         AND coalesce(n.transactionFrom, n.createdAt, '1970-01-01T00:00:00.000Z') <= $asOfDate
+         AND coalesce(n.transactionTo, '9999-12-31T23:59:59.999Z') > $asOfDate
        OPTIONAL MATCH (n)-[r]->(m)
        WHERE (r IS NULL OR (
-         m.validFrom <= $asOfDate AND m.validTo > $asOfDate
-         AND m.transactionFrom <= $asOfDate AND m.transactionTo > $asOfDate
-         AND r.validFrom <= $asOfDate AND r.validTo > $asOfDate
-         AND r.transactionFrom <= $asOfDate AND r.transactionTo > $asOfDate
+         coalesce(m.validFrom, m.createdAt, '1970-01-01T00:00:00.000Z') <= $asOfDate
+         AND coalesce(m.validTo, '9999-12-31T23:59:59.999Z') > $asOfDate
+         AND coalesce(m.transactionFrom, m.createdAt, '1970-01-01T00:00:00.000Z') <= $asOfDate
+         AND coalesce(m.transactionTo, '9999-12-31T23:59:59.999Z') > $asOfDate
+         AND coalesce(r.validFrom, r.transactionFrom, '1970-01-01T00:00:00.000Z') <= $asOfDate
+         AND coalesce(r.validTo, '9999-12-31T23:59:59.999Z') > $asOfDate
+         AND coalesce(r.transactionFrom, '1970-01-01T00:00:00.000Z') <= $asOfDate
+         AND coalesce(r.transactionTo, '9999-12-31T23:59:59.999Z') > $asOfDate
        ))
        AND ($domain IS NULL OR n.domain = $domain OR m.domain = $domain)
        RETURN n, r, m LIMIT 200`, { asOfDate, domain: domain ?? null }));
@@ -266,11 +272,11 @@ export const queryGraphAtTimestamp = async (asOfDate, domain) => {
                 secondaryLabels: Array.isArray(source.properties.secondaryLabels) ? source.properties.secondaryLabels : [],
                 sourceSystem: source.properties.sourceSystem,
                 properties: withoutKeys(source.properties, ['id', 'typeId', 'typeLabel', 'domain', 'secondaryLabels', 'sourceSystem', 'typeAttributesJson', 'provenanceJson', 'createdAt', 'validFrom', 'validTo', 'transactionFrom', 'transactionTo']),
-                createdAt: source.properties.createdAt,
-                validFrom: source.properties.validFrom,
-                validTo: source.properties.validTo,
-                transactionFrom: source.properties.transactionFrom,
-                transactionTo: source.properties.transactionTo,
+                createdAt: source.properties.createdAt ?? source.properties.validFrom ?? '1970-01-01T00:00:00.000Z',
+                validFrom: source.properties.validFrom ?? source.properties.createdAt ?? '1970-01-01T00:00:00.000Z',
+                validTo: source.properties.validTo ?? '9999-12-31T23:59:59.999Z',
+                transactionFrom: source.properties.transactionFrom ?? source.properties.createdAt ?? '1970-01-01T00:00:00.000Z',
+                transactionTo: source.properties.transactionTo ?? '9999-12-31T23:59:59.999Z',
                 provenance: parseProvenance(source.properties.provenanceJson, source.properties)
             });
             if (target)
@@ -285,11 +291,11 @@ export const queryGraphAtTimestamp = async (asOfDate, domain) => {
                     secondaryLabels: Array.isArray(target.properties.secondaryLabels) ? target.properties.secondaryLabels : [],
                     sourceSystem: target.properties.sourceSystem,
                     properties: withoutKeys(target.properties, ['id', 'typeId', 'typeLabel', 'domain', 'secondaryLabels', 'sourceSystem', 'typeAttributesJson', 'provenanceJson', 'createdAt', 'validFrom', 'validTo', 'transactionFrom', 'transactionTo']),
-                    createdAt: target.properties.createdAt,
-                    validFrom: target.properties.validFrom,
-                    validTo: target.properties.validTo,
-                    transactionFrom: target.properties.transactionFrom,
-                    transactionTo: target.properties.transactionTo,
+                    createdAt: target.properties.createdAt ?? target.properties.validFrom ?? '1970-01-01T00:00:00.000Z',
+                    validFrom: target.properties.validFrom ?? target.properties.createdAt ?? '1970-01-01T00:00:00.000Z',
+                    validTo: target.properties.validTo ?? '9999-12-31T23:59:59.999Z',
+                    transactionFrom: target.properties.transactionFrom ?? target.properties.createdAt ?? '1970-01-01T00:00:00.000Z',
+                    transactionTo: target.properties.transactionTo ?? '9999-12-31T23:59:59.999Z',
                     provenance: parseProvenance(target.properties.provenanceJson, target.properties)
                 });
             if (relationship && target)
@@ -299,10 +305,10 @@ export const queryGraphAtTimestamp = async (asOfDate, domain) => {
                     target: target.properties.id,
                     relationship: relationship.properties.relationship,
                     properties: withoutKeys(relationship.properties, ['id', 'relationship', 'validFrom', 'validTo', 'transactionFrom', 'transactionTo']),
-                    validFrom: relationship.properties.validFrom,
-                    validTo: relationship.properties.validTo,
-                    transactionFrom: relationship.properties.transactionFrom,
-                    transactionTo: relationship.properties.transactionTo
+                    validFrom: relationship.properties.validFrom ?? source.properties.validFrom ?? source.properties.createdAt ?? '1970-01-01T00:00:00.000Z',
+                    validTo: relationship.properties.validTo ?? '9999-12-31T23:59:59.999Z',
+                    transactionFrom: relationship.properties.transactionFrom ?? source.properties.transactionFrom ?? source.properties.createdAt ?? '1970-01-01T00:00:00.000Z',
+                    transactionTo: relationship.properties.transactionTo ?? '9999-12-31T23:59:59.999Z'
                 });
         }
         return { nodes: [...nodes.values()], edges };

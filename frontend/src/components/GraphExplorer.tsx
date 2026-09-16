@@ -51,7 +51,10 @@ const sourceStyles: Record<GraphNode['sourceSystem'], { accent: string; tint: st
   PDF: { accent: '#f38ba8', tint: 'rgba(243, 139, 168, 0.16)', label: 'PDF' },
   WORD: { accent: '#60a5fa', tint: 'rgba(96, 165, 250, 0.16)', label: 'WORD' },
   SME_INPUT: { accent: '#d69cff', tint: 'rgba(214, 156, 255, 0.16)', label: 'SME INPUT' },
-  SOP: { accent: '#8bd5ca', tint: 'rgba(139, 213, 202, 0.16)', label: 'S&OP' }
+  SOP: { accent: '#8bd5ca', tint: 'rgba(139, 213, 202, 0.16)', label: 'S&OP' },
+  POSTGRES: { accent: '#93c5fd', tint: 'rgba(147, 197, 253, 0.16)', label: 'POSTGRES' },
+  SNOWFLAKE: { accent: '#38bdf8', tint: 'rgba(56, 189, 248, 0.16)', label: 'SNOWFLAKE' },
+  DATABRICKS: { accent: '#fb923c', tint: 'rgba(251, 146, 60, 0.16)', label: 'DATABRICKS' }
 };
 
 const domainStyles: Record<GraphNode['domain'], { accent: string; tint: string; label: string }> = {

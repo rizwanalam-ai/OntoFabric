@@ -2,7 +2,7 @@ export type Primitive = string | number | boolean | null;
 
 export type PrimitiveDictionary = Record<string, Primitive>;
 
-export type SourceSystem = 'ERP' | 'CRM' | 'EXCEL' | 'CSV' | 'PDF' | 'WORD' | 'SME_INPUT' | 'SOP';
+export type SourceSystem = 'ERP' | 'CRM' | 'EXCEL' | 'CSV' | 'PDF' | 'WORD' | 'SME_INPUT' | 'SOP' | 'POSTGRES' | 'SNOWFLAKE' | 'DATABRICKS';
 
 export type RelationalSourceType = 'POSTGRES' | 'SNOWFLAKE' | 'DATABRICKS';
 
