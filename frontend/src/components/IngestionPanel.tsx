@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import axios from 'axios';
-import { AlertCircle, ArrowUpRight, CheckCircle2, Cloud, Database, FileSpreadsheet, FileText, Link2, LoaderCircle, Plus, RefreshCw, Snowflake, Trash2, Upload, X } from 'lucide-react';
+import { AlertCircle, ArrowUpRight, CheckCircle2, Cloud, Database, FileSpreadsheet, FileText, Link2, LoaderCircle, Plus, RefreshCw, ScrollText, Snowflake, Trash2, Upload, X } from 'lucide-react';
 import { api } from '../api';
 
 import type { DomainContext, GraphNode, Primitive } from '@ontofabric/shared/types.js';
@@ -11,8 +11,10 @@ type PropertyValueType = 'string' | 'number' | 'boolean' | 'null';
 type PropertyRow = { id: string; key: string; value: string; valueType: PropertyValueType };
 type SapSyncStatus = { state: 'idle' | 'syncing' | 'success' | 'error'; message: string; count?: number };
 type RelationalSyncStatus = { state: 'idle' | 'syncing' | 'success' | 'error'; message: string; count?: number };
-type RelationalSource = 'POSTGRES' | 'SNOWFLAKE';
+type RelationalSource = 'POSTGRES' | 'SNOWFLAKE' | 'DATABRICKS';
 type FileSource = 'LOCAL' | 'GOOGLE_DRIVE' | 'DROPBOX';
+type SyncAuditRecord = { id: string; sourceType: string; sourceReference: string; tableName?: string; fileName?: string; entityLabel?: string; domain: string; rowCount: number; nodeCount: number; edgeCount: number; status: 'SUCCEEDED' | 'FAILED'; startedAt: string; completedAt: string; errorMessage?: string };
+type SyncAuditResponse = { days: number; records: SyncAuditRecord[] };
 
 type IngestionPanelProps = {
   onRefresh: () => Promise<void>;
@@ -64,13 +66,14 @@ export function IngestionPanel({ onRefresh, id, domain, graphNodes = [], entityL
   const [remoteFileUrl, setRemoteFileUrl] = useState('');
   const [remoteFileName, setRemoteFileName] = useState('');
   const [hubOpen, setHubOpen] = useState(false);
-  const [hubTab, setHubTab] = useState<'files' | 'databases' | 'warehouses' | 'sme'>('files');
+  const [hubTab, setHubTab] = useState<'files' | 'databases' | 'warehouses' | 'sme' | 'audit'>('files');
   const [busy, setBusy] = useState('');
   const [notice, setNotice] = useState('');
   const [sapStatus, setSapStatus] = useState<SapSyncStatus>({ state: 'idle', message: '' });
   const [relationalStatus, setRelationalStatus] = useState<Record<RelationalSource, RelationalSyncStatus>>({
     POSTGRES: { state: 'idle', message: '' },
-    SNOWFLAKE: { state: 'idle', message: '' }
+    SNOWFLAKE: { state: 'idle', message: '' },
+    DATABRICKS: { state: 'idle', message: '' }
   });
   const [relationalToast, setRelationalToast] = useState<{ state: 'success' | 'error'; message: string } | null>(null);
   const [postgresTable, setPostgresTable] = useState('');
@@ -79,6 +82,9 @@ export function IngestionPanel({ onRefresh, id, domain, graphNodes = [], entityL
   const [snowflakeTable, setSnowflakeTable] = useState('');
   const [snowflakePrimaryKey, setSnowflakePrimaryKey] = useState('');
   const [snowflakeEntityLabel, setSnowflakeEntityLabel] = useState('');
+  const [databricksTable, setDatabricksTable] = useState('');
+  const [databricksPrimaryKey, setDatabricksPrimaryKey] = useState('');
+  const [databricksEntityLabel, setDatabricksEntityLabel] = useState('');
   const [nodeLabel, setNodeLabel] = useState('');
   const [propertyRows, setPropertyRows] = useState<PropertyRow[]>([createPropertyRow()]);
   const [sourceNode, setSourceNode] = useState('');
@@ -88,6 +94,9 @@ export function IngestionPanel({ onRefresh, id, domain, graphNodes = [], entityL
   const [driftSample, setDriftSample] = useState('{\n  "customerId": "C-1001",\n  "name": "Example"\n}');
   const [driftResult, setDriftResult] = useState<SchemaDriftResult | null>(null);
   const [redactedCount, setRedactedCount] = useState<number | null>(null);
+  const [auditRecords, setAuditRecords] = useState<SyncAuditRecord[]>([]);
+  const [auditLoading, setAuditLoading] = useState(false);
+  const [auditError, setAuditError] = useState('');
   const propertyErrors = useMemo(() => validatePropertyRows(propertyRows), [propertyRows]);
   const entityOptions = [...new Set([...defaultEntityLabels, ...entityLabels])];
   const relationshipOptions = [...new Set([...defaultRelationshipNames, ...relationshipNames])];
@@ -98,6 +107,23 @@ export function IngestionPanel({ onRefresh, id, domain, graphNodes = [], entityL
     setHubTab('sme');
     onQuickActionHandled?.();
   }, [onQuickActionHandled, quickAction]);
+
+  const refreshAudit = async () => {
+    setAuditLoading(true);
+    setAuditError('');
+    void api.get<SyncAuditResponse>('/api/audit/syncs', { params: { limit: 100, days: 5 } })
+      .then(({ data }) => setAuditRecords(data.records))
+      .catch((error) => {
+        setAuditRecords([]);
+        setAuditError(axios.isAxiosError(error) ? error.response?.data?.message ?? error.response?.data?.error ?? 'Unable to load audit records.' : 'Unable to load audit records.');
+      })
+      .finally(() => setAuditLoading(false));
+  };
+
+  useEffect(() => {
+    if (!hubOpen || hubTab !== 'audit') return;
+    void refreshAudit();
+  }, [hubOpen, hubTab]);
 
   const run = async (key: string, action: () => Promise<string | void>) => {
     setBusy(key);
@@ -173,9 +199,10 @@ export function IngestionPanel({ onRefresh, id, domain, graphNodes = [], entityL
 
   const syncRelational = async (sourceType: RelationalSource) => {
     const isPostgres = sourceType === 'POSTGRES';
-    const tableName = (isPostgres ? postgresTable : snowflakeTable).trim();
-    const primaryKeyColumn = (isPostgres ? postgresPrimaryKey : snowflakePrimaryKey).trim();
-    const entityLabel = (isPostgres ? postgresEntityLabel : snowflakeEntityLabel).trim();
+    const isSnowflake = sourceType === 'SNOWFLAKE';
+    const tableName = (isPostgres ? postgresTable : isSnowflake ? snowflakeTable : databricksTable).trim();
+    const primaryKeyColumn = (isPostgres ? postgresPrimaryKey : isSnowflake ? snowflakePrimaryKey : databricksPrimaryKey).trim();
+    const entityLabel = (isPostgres ? postgresEntityLabel : isSnowflake ? snowflakeEntityLabel : databricksEntityLabel).trim();
     if (!tableName || !primaryKeyColumn || !entityLabel) {
       const message = 'Table name, primary key column, and entity label are required.';
       setRelationalStatus((current) => ({ ...current, [sourceType]: { state: 'error', message } }));
@@ -187,12 +214,13 @@ export function IngestionPanel({ onRefresh, id, domain, graphNodes = [], entityL
     setRelationalToast(null);
     setRelationalStatus((current) => ({ ...current, [sourceType]: { state: 'syncing', message: 'Syncing Relational Schema...' } }));
     try {
-      const endpoint = isPostgres ? '/api/sync/postgres' : '/api/sync/snowflake';
+      const endpoint = isPostgres ? '/api/sync/postgres' : isSnowflake ? '/api/sync/snowflake' : '/api/sync/databricks';
       const { data } = await api.post<{ nodeCount: number; relationshipCounts?: Record<string, number> }>(endpoint, { tableName, primaryKeyColumn, entityLabel, domain });
       await onRefresh();
       const message = `Imported ${data.nodeCount} ${entityLabel} record${data.nodeCount === 1 ? '' : 's'} and refreshed the graph.`;
       setRelationalStatus((current) => ({ ...current, [sourceType]: { state: 'success', count: data.nodeCount, message } }));
       setRelationalToast({ state: 'success', message });
+      await refreshAudit();
     } catch (error) {
       const message = axios.isAxiosError(error)
         ? error.response?.data?.message ?? error.response?.data?.error ?? `${sourceType} synchronization failed.`
@@ -262,10 +290,16 @@ export function IngestionPanel({ onRefresh, id, domain, graphNodes = [], entityL
             <button type="button" aria-label="Close data connections" onClick={() => setHubOpen(false)} className="rounded-xl p-2 text-slate-400 hover:bg-white/10 hover:text-white"><X size={18} /></button>
           </header>
           <div className="flex gap-1 overflow-x-auto border-b border-white/10 px-5 pt-3">
-            {([['files', 'Files'], ['databases', 'Databases'], ['warehouses', 'Cloud Warehouses'], ['sme', 'SME Form']] as const).map(([tab, label]) => <button key={tab} type="button" onClick={() => setHubTab(tab)} className={`whitespace-nowrap border-b-2 px-3 pb-3 text-xs font-semibold transition ${hubTab === tab ? 'border-cyan-300 text-cyan-200' : 'border-transparent text-slate-500 hover:text-slate-200'}`}>{label}</button>)}
+            {([['files', 'Files'], ['databases', 'Databases'], ['warehouses', 'Cloud Warehouses'], ['sme', 'SME Form'], ['audit', 'Sync Audit']] as const).map(([tab, label]) => <button key={tab} type="button" onClick={() => setHubTab(tab)} className={`whitespace-nowrap border-b-2 px-3 pb-3 text-xs font-semibold transition ${hubTab === tab ? 'border-cyan-300 text-cyan-200' : 'border-transparent text-slate-500 hover:text-slate-200'}`}>{label}</button>)}
           </div>
           <div className="overflow-y-auto">
       <div className="space-y-7 p-5 lg:p-6">
+        <div className={hubTab === 'audit' ? '' : 'hidden'}>
+          <div className="mb-4 flex items-center gap-2"><ScrollText size={15} className="text-cyan-300" /><div><h2 className="text-[11px] font-bold uppercase tracking-[0.2em] text-slate-300">Sync audit trail</h2><p className="mt-1 text-[10px] text-slate-500">Last 5 days · source runs, counts, timing, and outcome.</p></div></div>
+          {auditRecords.length > 0 && <div className="mb-4 grid grid-cols-2 gap-2 sm:grid-cols-4"><div className="rounded-xl border border-white/10 bg-white/[0.03] p-3"><p className="text-[10px] uppercase tracking-[0.12em] text-slate-500">Runs</p><p className="mt-1 text-lg font-semibold text-white">{auditRecords.length}</p></div><div className="rounded-xl border border-emerald-300/15 bg-emerald-300/[0.05] p-3"><p className="text-[10px] uppercase tracking-[0.12em] text-slate-500">Succeeded</p><p className="mt-1 text-lg font-semibold text-emerald-200">{auditRecords.filter((record) => record.status === 'SUCCEEDED').length}</p></div><div className="rounded-xl border border-rose-300/15 bg-rose-300/[0.05] p-3"><p className="text-[10px] uppercase tracking-[0.12em] text-slate-500">Failed</p><p className="mt-1 text-lg font-semibold text-rose-200">{auditRecords.filter((record) => record.status === 'FAILED').length}</p></div><div className="rounded-xl border border-cyan-300/15 bg-cyan-300/[0.05] p-3"><p className="text-[10px] uppercase tracking-[0.12em] text-slate-500">Rows synced</p><p className="mt-1 text-lg font-semibold text-cyan-200">{auditRecords.reduce((sum, record) => sum + record.rowCount, 0)}</p></div></div>}
+          {auditError && <div className="mb-3 rounded-xl border border-rose-300/20 bg-rose-300/10 px-3 py-2 text-xs text-rose-100">{auditError}</div>}
+          {auditLoading ? <div className="flex items-center gap-2 rounded-xl border border-white/10 bg-white/[0.03] px-3 py-4 text-xs text-slate-400"><LoaderCircle size={14} className="animate-spin" /> Loading audit records...</div> : auditRecords.length === 0 && !auditError ? <div className="rounded-xl border border-white/10 bg-white/[0.03] px-3 py-4 text-xs text-slate-500">No sync audit records in the last 5 days.</div> : auditRecords.length > 0 ? <div className="overflow-x-auto rounded-xl border border-white/10"><table className="min-w-[1040px] w-full text-left text-[11px]"><thead className="bg-white/[0.05] text-[10px] uppercase tracking-[0.12em] text-slate-500"><tr><th className="px-3 py-3">Completed</th><th className="px-3 py-3">Source</th><th className="px-3 py-3">Reference</th><th className="px-3 py-3">Domain</th><th className="px-3 py-3">Rows</th><th className="px-3 py-3">Nodes</th><th className="px-3 py-3">Edges</th><th className="px-3 py-3">Duration</th><th className="px-3 py-3">Status</th><th className="px-3 py-3">Details</th></tr></thead><tbody className="divide-y divide-white/10">{auditRecords.map((record) => <tr key={record.id} className="text-slate-300"><td className="whitespace-nowrap px-3 py-3 text-slate-500">{new Date(record.completedAt).toLocaleString()}</td><td className="px-3 py-3 font-semibold text-cyan-200">{record.sourceType}</td><td className="max-w-[230px] truncate px-3 py-3" title={record.sourceReference}>{record.tableName ?? record.fileName ?? record.sourceReference}</td><td className="px-3 py-3">{record.domain}</td><td className="px-3 py-3 font-mono">{record.rowCount}</td><td className="px-3 py-3 font-mono">{record.nodeCount}</td><td className="px-3 py-3 font-mono">{record.edgeCount}</td><td className="px-3 py-3 font-mono text-slate-500">{Math.max(0, new Date(record.completedAt).getTime() - new Date(record.startedAt).getTime()) < 1000 ? `${Math.max(0, new Date(record.completedAt).getTime() - new Date(record.startedAt).getTime())}ms` : `${(Math.max(0, new Date(record.completedAt).getTime() - new Date(record.startedAt).getTime()) / 1000).toFixed(1)}s`}</td><td className="px-3 py-3"><span className={`rounded-full px-2 py-1 text-[9px] font-bold ${record.status === 'SUCCEEDED' ? 'bg-emerald-300/10 text-emerald-200' : 'bg-rose-300/10 text-rose-200'}`}>{record.status}</span></td><td className="max-w-[260px] truncate px-3 py-3 text-slate-500" title={record.errorMessage ?? `${record.entityLabel ?? 'Sync'} completed`}>{record.errorMessage ?? `${record.entityLabel ?? 'Sync'} completed`}</td></tr>)}</tbody></table></div> : null}
+        </div>
         <div className={hubTab === 'sme' ? 'hidden' : ''}>
           <div className="mb-4 flex items-center gap-2">
             <Upload size={15} className="text-cyan-300" />
@@ -345,6 +379,20 @@ export function IngestionPanel({ onRefresh, id, domain, graphNodes = [], entityL
                   {busy === 'SNOWFLAKE' ? <LoaderCircle size={14} className="animate-spin" /> : <Snowflake size={14} />} {busy === 'SNOWFLAKE' ? 'Syncing Relational Schema...' : 'Sync Snowflake'} <ArrowUpRight size={13} className="ml-auto" />
                 </button>
                 {relationalStatus.SNOWFLAKE.state !== 'idle' && <p className={`mt-2 text-[10px] leading-4 ${relationalStatus.SNOWFLAKE.state === 'error' ? 'text-rose-300' : relationalStatus.SNOWFLAKE.state === 'success' ? 'text-emerald-300' : 'text-sky-200'}`} role={relationalStatus.SNOWFLAKE.state === 'error' ? 'alert' : 'status'}>{relationalStatus.SNOWFLAKE.message}</p>}
+              </div>
+              <div className="rounded-2xl border border-orange-400/25 bg-orange-400/[0.06] p-3">
+                <div className="flex items-center gap-2">
+                  <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-orange-500/20 text-orange-300"><Cloud size={16} /></span>
+                  <div><p className="text-xs font-semibold text-slate-100">Databricks</p><p className="text-[10px] text-orange-200/70">SQL warehouse table</p></div>
+                  <span className="ml-auto rounded-full bg-orange-500/20 px-2 py-1 text-[9px] font-bold uppercase tracking-[0.12em] text-orange-200">DBX</span>
+                </div>
+                <input className={inputClass} value={databricksTable} onChange={(event) => setDatabricksTable(event.target.value)} placeholder="customer or samples.tpch.customer" aria-label="Databricks table name" />
+                <input className={inputClass} value={databricksPrimaryKey} onChange={(event) => setDatabricksPrimaryKey(event.target.value)} placeholder="Primary Key Column" aria-label="Databricks primary key column" />
+                <input className={inputClass} value={databricksEntityLabel} onChange={(event) => setDatabricksEntityLabel(event.target.value)} placeholder="Entity Label, e.g. Order" aria-label="Databricks entity label" />
+                <button type="button" className={`${buttonClass} mt-2 bg-orange-500 text-white hover:bg-orange-400`} disabled={Boolean(busy)} onClick={() => void syncRelational('DATABRICKS')}>
+                  {busy === 'DATABRICKS' ? <LoaderCircle size={14} className="animate-spin" /> : <Cloud size={14} />} {busy === 'DATABRICKS' ? 'Syncing Databricks...' : 'Sync Databricks'} <ArrowUpRight size={13} className="ml-auto" />
+                </button>
+                {relationalStatus.DATABRICKS.state !== 'idle' && <p className={`mt-2 text-[10px] leading-4 ${relationalStatus.DATABRICKS.state === 'error' ? 'text-rose-300' : relationalStatus.DATABRICKS.state === 'success' ? 'text-emerald-300' : 'text-orange-200'}`} role={relationalStatus.DATABRICKS.state === 'error' ? 'alert' : 'status'}>{relationalStatus.DATABRICKS.message}</p>}
               </div>
             </div>
           </div>

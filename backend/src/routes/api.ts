@@ -20,6 +20,7 @@ import type { SchemaDriftResult } from '../services/schemaDriftService.js';
 import { executeLocalGraphUpdate, executeWriteBackAction } from '../services/actionEngineService.js';
 import { syncSapSandbox } from '../services/sapService.js';
 import { getFileSourceType, parseUploadedFile } from '../services/fileIngestionService.js';
+import { recordSyncAudit } from '../services/syncAuditService.js';
 
 const router = Router();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 25 * 1024 * 1024 } });
@@ -217,6 +218,7 @@ router.post('/ingest/file', async (request, response) => {
   const detectedSourceType: SourceSystem = sourceType
     ?? (path.extname(filePath).toLowerCase() === '.pdf' ? 'PDF' : 'EXCEL');
 
+  const startedAt = new Date().toISOString();
   try {
     const parsedSource = detectedSourceType === 'PDF'
       ? await callPdfParser(filePath)
@@ -244,8 +246,10 @@ router.post('/ingest/file', async (request, response) => {
     const nodes = graph.nodes.map((node) => ({ ...node, domain, sourceSystem: node.sourceSystem ?? detectedSourceType }));
 
     await persistGraphToNeo4j(nodes, graph.edges);
+    await recordSyncAudit({ sourceType: detectedSourceType, sourceReference: filePath, fileName: path.basename(filePath), domain, rowCount: Array.isArray(parsedSource) ? parsedSource.length : 1, nodeCount: nodes.length, edgeCount: graph.edges.length, status: 'SUCCEEDED', startedAt, completedAt: new Date().toISOString() });
     response.status(201).json({ sourceType: detectedSourceType, domain, schemaDrift, ...graph, nodes: redactNodeProperties(nodes, getUserRole(request)) });
   } catch (error) {
+    await recordSyncAudit({ sourceType: detectedSourceType, sourceReference: filePath, fileName: path.basename(filePath), domain, rowCount: 0, nodeCount: 0, edgeCount: 0, status: 'FAILED', startedAt, completedAt: new Date().toISOString(), errorMessage: errorMessage(error) });
     response.status(502).json({ error: 'File ingestion failed.', message: errorMessage(error) });
   }
 });
@@ -257,6 +261,7 @@ router.post('/ingest/upload', upload.single('file'), async (request, response) =
     return;
   }
 
+  const startedAt = new Date().toISOString();
   try {
     let buffer: Buffer;
     let fileName = parsedRequest.data.fileName ?? 'source.bin';
@@ -301,18 +306,23 @@ router.post('/ingest/upload', upload.single('file'), async (request, response) =
     const graph = await extractOntologyFromText(rawText, parsedRequest.data.domain);
     const nodes = graph.nodes.map((node) => ({ ...node, domain: parsedRequest.data.domain, sourceSystem: node.sourceSystem ?? parsedFile.sourceType }));
     await persistGraphToNeo4j(nodes, graph.edges);
+    await recordSyncAudit({ sourceType: parsedFile.sourceType, sourceReference: sourceReference, fileName, domain: parsedRequest.data.domain, rowCount: Array.isArray(parsedFile.parsedSource) ? parsedFile.parsedSource.length : 1, nodeCount: nodes.length, edgeCount: graph.edges.length, status: 'SUCCEEDED', startedAt, completedAt: new Date().toISOString() });
     response.status(201).json({ source: sourceReference, fileName, sourceType: parsedFile.sourceType, domain: parsedRequest.data.domain, schemaDrift, ...graph, nodes: redactNodeProperties(nodes, getUserRole(request)) });
   } catch (error) {
+    await recordSyncAudit({ sourceType: parsedRequest.data.domain === 'CUSTOM' ? 'UPLOAD' : 'UPLOAD', sourceReference: parsedRequest.data.source, fileName: parsedRequest.data.fileName, domain: parsedRequest.data.domain, rowCount: 0, nodeCount: 0, edgeCount: 0, status: 'FAILED', startedAt, completedAt: new Date().toISOString(), errorMessage: errorMessage(error) });
     response.status(502).json({ error: 'File upload ingestion failed.', message: errorMessage(error) });
   }
 });
 
 router.post('/integrations/sap/sync', async (_request, response) => {
+  const startedAt = new Date().toISOString();
   try {
     const result = await syncSapSandbox();
     await persistGraphToNeo4j(result.nodes, []);
+    await recordSyncAudit({ sourceType: result.sourceType, sourceReference: result.entityType, entityLabel: result.entityType, domain: 'CUSTOM', rowCount: result.count, nodeCount: result.nodes.length, edgeCount: 0, status: 'SUCCEEDED', startedAt, completedAt: new Date().toISOString() });
     response.status(201).json({ sourceType: result.sourceType, entityType: result.entityType, count: result.count });
   } catch (error) {
+    await recordSyncAudit({ sourceType: 'SAP', sourceReference: 'SAP sandbox', domain: 'CUSTOM', rowCount: 0, nodeCount: 0, edgeCount: 0, status: 'FAILED', startedAt, completedAt: new Date().toISOString(), errorMessage: errorMessage(error) });
     response.status(502).json({ error: 'SAP sandbox sync failed.', message: errorMessage(error) });
   }
 });

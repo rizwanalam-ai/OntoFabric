@@ -119,6 +119,23 @@ The backend starts Node with the system CA store enabled so SAP sandbox TLS cert
 
 Do not disable TLS verification with `NODE_TLS_REJECT_UNAUTHORIZED=0` in normal development or production use.
 
+### Databricks sync configuration
+
+The Data Mesh connector syncs a Databricks SQL warehouse table into Neo4j. Configure these variables in the backend environment only:
+
+```env
+DATABRICKS_SERVER_HOSTNAME=your-workspace.cloud.databricks.com
+DATABRICKS_HTTP_PATH=/sql/1.0/warehouses/your-warehouse-id
+DATABRICKS_TOKEN=your_databricks_pat
+# Optional when the HTTP path does not contain the warehouse ID:
+# DATABRICKS_WAREHOUSE_ID=your-warehouse-id
+# Default catalog/schema for an unqualified table name:
+DATABRICKS_CATALOG=samples
+DATABRICKS_SCHEMA=tpch
+```
+
+Open **Add Data Source**, select **Databases**, enter a table name, primary-key column, and entity label under **Databricks**, then select **Sync Databricks**. For the Databricks sample customer table shown in Catalog Explorer, use `samples.tpch.customer` and primary key `c_custkey`. An unqualified name such as `customer` uses `DATABRICKS_CATALOG` and `DATABRICKS_SCHEMA`. The backend reads up to 10,000 rows through the Databricks SQL Statement Execution API and maps them to domain-scoped `Entity` nodes.
+
 ## Run Locally
 
 From the repository root:
@@ -358,6 +375,8 @@ All backend routes are served from `http://localhost:3001`.
 | `POST` | `/api/resolution/approve` | Merge, link, or reject a pending match |
 | `GET` | `/api/sop/graph` | Load the S&OP graph |
 | `GET` | `/api/sop/summary` | Load demand, inventory, supplier, and capacity data |
+| `POST` | `/api/sync/databricks` | Sync a Databricks SQL warehouse table into the ontology graph |
+| `GET` | `/api/audit/syncs?days=5` | Load recent source-sync audit records with counts, status, timing, and errors |
 
 Requests are validated with Zod schemas. Invalid input returns a client error with validation details. Backend failures are returned with an error message and an appropriate service status.
 

@@ -45,7 +45,7 @@ export const syncRelationalTableToNeo4j = async (
   const domain = safeLabel(payload.domain, 'domain');
   const primaryKeyColumn = payload.primaryKeyColumn.trim();
   if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(primaryKeyColumn)) throw new Error(`Invalid primary key column: ${payload.primaryKeyColumn}`);
-  if (!['POSTGRES', 'SNOWFLAKE'].includes(payload.sourceType)) throw new Error(`Unsupported relational source type: ${payload.sourceType}`);
+  if (!['POSTGRES', 'SNOWFLAKE', 'DATABRICKS'].includes(payload.sourceType)) throw new Error(`Unsupported relational source type: ${payload.sourceType}`);
 
   const session = getNeo4jDriver().session();
   const sanitizedRecords = sanitizeRecordsForNeo4j(records);

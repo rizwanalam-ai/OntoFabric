@@ -4,7 +4,7 @@ export type PrimitiveDictionary = Record<string, Primitive>;
 
 export type SourceSystem = 'ERP' | 'CRM' | 'EXCEL' | 'CSV' | 'PDF' | 'WORD' | 'SME_INPUT' | 'SOP';
 
-export type RelationalSourceType = 'POSTGRES' | 'SNOWFLAKE';
+export type RelationalSourceType = 'POSTGRES' | 'SNOWFLAKE' | 'DATABRICKS';
 
 export type DomainContext = 'SUPPLY_CHAIN' | 'FINANCE' | 'HEALTHCARE' | 'HR_ORG' | 'CUSTOM';
 
