@@ -8,6 +8,7 @@
     "db:init": "tsx src/db/init.ts",
     "db:seed:sop": "tsx src/db/seedSop.ts",
     "db:seed:planning": "tsx src/db/seedPlanningScenario.ts",
+    "db:seed:scenarios": "tsx src/db/seedScenarioData.ts",
     "db:seed:domains": "tsx src/db/seedDomainTemplates.ts",
     "db:load:sop": "tsx src/db/loadSopData.ts",
     "build": "tsc -p tsconfig.json",

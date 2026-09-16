@@ -118,6 +118,18 @@ export const extractSubgraphContext = async (entityIds, hops = 2) => {
         await session.close();
     }
 };
+const isSupplyShortageQuestion = (prompt) => /shortage|shortfall|below\s+(?:the\s+)?reorder|low\s+inventory|insufficient\s+inventory|stock\s+out/i.test(prompt);
+const supplyShortageFallbackQuery = `
+    MATCH (product:Entity {domain: $domain})-[stored:RELATED_TO {relationship: 'STORED_AT'}]->(facility:Entity {domain: $domain})
+    WHERE toFloat(coalesce(stored.onHand, 0)) < toFloat(coalesce(stored.reorderPoint, stored.safetyStock, 0))
+    OPTIONAL MATCH (product)-[bom:RELATED_TO {relationship: 'REQUIRES_BOM'}]->(component:Entity {domain: $domain})
+    OPTIONAL MATCH (component)-[supply:RELATED_TO {relationship: 'SUPPLIED_BY'}]->(supplier:Entity {domain: $domain})
+    RETURN product, stored, facility, collect({component: component, bom: bom, supplier: supplier, supply: supply}) AS supplyChain
+    LIMIT 100`;
+const executeSupplyShortageFallback = async (session, domain) => {
+    const result = await session.executeRead((transaction) => transaction.run(supplyShortageFallbackQuery, { domain }));
+    return { records: result.records, query: supplyShortageFallbackQuery.trim() };
+};
 export const executeGroundedQuery = async (userPrompt, domain) => {
     const domainSchema = domainSchemas[domain];
     const domainPromptContext = `${ontologySchema}\nActive domain: ${domainSchema.displayName} (${domain}).\nDomain rules: ${domainSchema.systemPromptRules}\nAllowed node labels: ${domainSchema.allowedNodeLabels.join(', ') || 'custom labels'}.\nAllowed relationships: ${domainSchema.allowedRelationships.join(', ') || 'custom relationships'}.\nWhen querying Entity nodes, filter them with {domain: $domain}; use the $domain parameter for all applicable node matches.`;
@@ -128,11 +140,17 @@ export const executeGroundedQuery = async (userPrompt, domain) => {
     validateReadOnlyCypher(cypherQuery);
     const session = getNeo4jDriver().session();
     try {
-        const result = await session.executeRead((transaction) => transaction.run(cypherQuery, { domain }));
+        let result = await session.executeRead((transaction) => transaction.run(cypherQuery, { domain }));
+        let resolvedCypherQuery = cypherQuery;
+        if (result.records.length === 0 && domain === 'SUPPLY_CHAIN' && isSupplyShortageQuestion(userPrompt)) {
+            const fallback = await executeSupplyShortageFallback(session, domain);
+            result = { records: fallback.records };
+            resolvedCypherQuery = fallback.query;
+        }
         const serializedResults = result.records.map(serializeRecord);
         const sourceNodeMap = new Map();
         result.records.forEach((record) => Array.from(record.values()).forEach((value) => collectNodes(value, sourceNodeMap)));
-        const context = JSON.stringify({ query: userPrompt, cypher: cypherQuery, results: serializedResults });
+        const context = JSON.stringify({ query: userPrompt, cypher: resolvedCypherQuery, results: serializedResults });
         const completion = await getAiClient().chat.completions.create({
             model: getAiModel(),
             temperature: 0,
@@ -146,7 +164,7 @@ export const executeGroundedQuery = async (userPrompt, domain) => {
         });
         return {
             answer: completion.choices[0]?.message.content?.trim() ?? 'The graph did not provide an answer.',
-            cypherQuery,
+            cypherQuery: resolvedCypherQuery,
             sourceNodes: [...sourceNodeMap.values()]
         };
     }

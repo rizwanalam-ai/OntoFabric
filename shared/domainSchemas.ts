@@ -20,7 +20,7 @@ export const SUPPLY_CHAIN_SCHEMA: DomainSchemaConfig = {
   domain: 'SUPPLY_CHAIN',
   displayName: 'Supply Chain (SCOR)',
   allowedNodeLabels: ['Product', 'Component', 'Supplier', 'Facility', 'DemandForecast'],
-  allowedRelationships: ['SUPPLIES', 'STORED_AT', 'FULFILLED_BY', 'REQUIRES_BOM'],
+  allowedRelationships: ['SUPPLIES', 'SUPPLIED_BY', 'STORED_AT', 'FULFILLED_BY', 'HAS_DEMAND', 'FOR_PRODUCT', 'REQUIRES_BOM', 'PRODUCED_AT', 'SHIPPED_TO'],
   systemPromptRules: 'Use SCOR-aligned supply-chain entities and relationships. Preserve product, facility, supplier, and demand context, and do not infer logistics events that are not present in the source data.'
 };
 

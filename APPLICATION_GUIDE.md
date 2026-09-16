@@ -142,6 +142,14 @@ npm run db:seed:sop --workspace @ontofabric/backend
 npm run db:seed:planning --workspace @ontofabric/backend
 ```
 
+Seed the complete scenario test dataset:
+
+```bash
+npm run db:seed:scenarios --workspace @ontofabric/backend
+```
+
+The scenario seed is repeatable and uses `TEST-*` IDs. It creates a supply-shortage path, near-duplicate customer records with a pending approval, planner-entered supplier data, historical graph records, and a PDF-originated contract linked to planning data.
+
 Start the backend:
 
 ```bash
@@ -389,6 +397,8 @@ The backend uses the file parsing tools through its MCP client. ERP and CRM tool
 6. Ask the Graph Assistant which products have insufficient inventory and which suppliers support their components.
 7. Use the minimap and Center control to navigate a larger graph.
 
+Seeded focus: `TEST-PUMP-100` has 180 units on hand against a 500-unit safety stock and 700-unit reorder point. Its seal supplier has a 42-day lead time.
+
 ### Scenario 2: Consolidate duplicate customer records
 
 **Goal:** clean up records from multiple source systems.
@@ -401,6 +411,8 @@ The backend uses the file parsing tools through its MCP client. ERP and CRM tool
 6. Reject false positives.
 7. Return to **Explorer** to inspect the canonical graph.
 
+Seeded focus: compare `TEST-CUSTOMER-ACME` and `TEST-CUSTOMER-ACME-DUP`, then resolve `TEST-DUP-ACME-001`.
+
 ### Scenario 3: Add planner knowledge without changing an upstream system
 
 **Goal:** record a planner-maintained supplier or relationship.
@@ -412,6 +424,8 @@ The backend uses the file parsing tools through its MCP client. ERP and CRM tool
 5. Add a relationship from a component to the supplier using `SUPPLIED_BY`.
 6. Refresh the graph and verify the new node and edge.
 
+Seeded focus: `TEST-PLANNER-SUPPLIER` is recorded as `SME_INPUT` and is linked to `TEST-SEAL-01` with a 14-day lead time.
+
 ### Scenario 4: Analyze a historical graph state
 
 **Goal:** understand what the ontology looked like at a prior point in time.
@@ -420,6 +434,8 @@ The backend uses the file parsing tools through its MCP client. ERP and CRM tool
 2. Compare the returned graph with the current `/api/ontology/graph` response.
 3. Use the node provenance and temporal fields to explain when data became valid and when it was recorded.
 4. Use role-appropriate responses when sharing the result with different user roles.
+
+Seeded focus: query before `2026-01-01T00:00:00.000Z` to find `TEST-PUMP-100-HISTORICAL`, then query the current date to find `TEST-PUMP-100`.
 
 ### Scenario 5: Combine PDF contracts with planning data
 
@@ -431,6 +447,8 @@ The backend uses the file parsing tools through its MCP client. ERP and CRM tool
 4. Search or filter the graph for suppliers, products, or facilities found in the contract.
 5. Add SME links where extraction needs domain clarification.
 6. Review the S&OP Cockpit for planning impact.
+
+Seeded focus: inspect `TEST-CONTRACT-ACME`, which has `PDF` provenance and a safety-stock clause linked to `TEST-PUMP-100`.
 
 ## Troubleshooting
 
