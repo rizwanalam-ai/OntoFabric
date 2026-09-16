@@ -1,10 +1,10 @@
 import { Router } from 'express';
-import OpenAI from 'openai';
 import { z } from 'zod';
 
 import { domainSchemas, updateDomainSchema } from '@ontofabric/shared/domainSchemas.js';
 import type { DomainContext, DomainSchemaConfig } from '@ontofabric/shared/types.js';
 import { getNeo4jDriver } from '../services/ontologyService.js';
+import { getAiClient, getAiModel, isAiConfigured } from '../services/aiService.js';
 
 const router = Router();
 const domainSchema = z.enum(['SUPPLY_CHAIN', 'FINANCE', 'HEALTHCARE', 'HR_ORG', 'CUSTOM']);
@@ -108,9 +108,6 @@ const persistSchema = async (domain: DomainContext, nodeTypes: z.infer<typeof en
   updateDomainSchema(config);
   return config;
 };
-
-let openAiClient: OpenAI | undefined;
-const getOpenAiClient = (): OpenAI => { openAiClient ??= new OpenAI({ apiKey: process.env.OPENAI_API_KEY }); return openAiClient; };
 
 const localSchemaTemplates: Record<DomainContext, z.infer<typeof entityTypeSchema>[]> = {
   SUPPLY_CHAIN: [
@@ -227,13 +224,12 @@ router.post('/generate-from-prompt', async (request, response) => {
     return;
   }
   try {
-    const apiKey = process.env.OPENAI_API_KEY?.trim();
-    if (!apiKey || apiKey === 'OPENAI_API_KEY' || apiKey === 'your_key') {
+    if (!isAiConfigured()) {
       response.json({ nodeTypes: localSchemaTemplates[parsedRequest.data.domain] });
       return;
     }
-    const completion = await getOpenAiClient().chat.completions.create({
-      model: process.env.OPENAI_MODEL ?? 'gpt-4o', temperature: 0, response_format: { type: 'json_object' },
+    const completion = await getAiClient().chat.completions.create({
+      model: getAiModel(), temperature: 0, response_format: { type: 'json_object' },
       messages: [{ role: 'system', content: 'Return JSON only with nodeTypes. Each nodeType has id, label, attributes, attributeTypes, primaryKeys, and requiredProperties. Primitive attributeTypes are string, number, boolean, or date.' }, { role: 'user', content: `Domain: ${parsedRequest.data.domain}\nSchema description: ${parsedRequest.data.prompt}` }]
     });
     const parsed = z.object({ nodeTypes: z.array(entityTypeSchema) }).parse(JSON.parse(completion.choices[0]?.message.content ?? '{}'));

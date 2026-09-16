@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { DEFAULT_TEMPORAL_END } from '@ontofabric/shared/types.js';
 import { z } from 'zod';
 import { getNeo4jDriver } from './ontologyService.js';
-import OpenAI from 'openai';
+import { getAiClient, getAiModel, isAiConfigured } from './aiService.js';
 const primitive = z.union([z.string(), z.number(), z.boolean(), z.null()]);
 const primitiveDictionary = z.record(primitive);
 const graphNodeSchema = z.object({
@@ -22,11 +22,6 @@ const graphNodeSchema = z.object({
         extractionTimestamp: z.string(), rawPayload: z.string().optional(), mcpTool: z.string().optional()
     })
 });
-let openAiClient;
-const getOpenAiClient = () => {
-    openAiClient ??= new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
-    return openAiClient;
-};
 const asText = (value) => String(value ?? '').trim();
 const jaroWinkler = (first, second) => {
     const a = first.toLowerCase().trim();
@@ -71,10 +66,10 @@ const cosineSimilarity = (first, second) => {
     return firstMagnitude && secondMagnitude ? dot / (firstMagnitude * secondMagnitude) : 0;
 };
 const embeddingSimilarity = async (first, second) => {
-    if (!first || !second || !process.env.OPENAI_API_KEY || process.env.OPENAI_API_KEY === 'your_key')
+    if (!first || !second || !isAiConfigured('embeddings'))
         return null;
-    const response = await getOpenAiClient().embeddings.create({
-        model: process.env.OPENAI_EMBEDDING_MODEL ?? 'text-embedding-3-small',
+    const response = await getAiClient('embeddings').embeddings.create({
+        model: getAiModel('embeddings'),
         input: [first, second]
     });
     return cosineSimilarity(response.data[0].embedding, response.data[1].embedding);

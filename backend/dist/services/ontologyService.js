@@ -1,9 +1,9 @@
 import neo4j from 'neo4j-driver';
-import OpenAI from 'openai';
 import { z } from 'zod';
 import { domainSchemas } from '@ontofabric/shared/domainSchemas.js';
 import { DEFAULT_TEMPORAL_END } from '@ontofabric/shared/types.js';
 import { anonymizeText } from './anonymizationService.js';
+import { getAiClient, getAiModel } from './aiService.js';
 const primitive = z.union([z.string(), z.number(), z.boolean(), z.null()]);
 const primitiveDictionary = z.record(primitive);
 const graphNodeSchema = z.object({
@@ -51,12 +51,7 @@ const ontologyResponseFormat = {
         }
     }
 };
-let openAiClient;
 let neo4jDriver;
-const getOpenAiClient = () => {
-    openAiClient ??= new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
-    return openAiClient;
-};
 export const getNeo4jDriver = () => {
     neo4jDriver ??= neo4j.driver(process.env.NEO4J_URI ?? 'bolt://localhost:7687', neo4j.auth.basic(process.env.NEO4J_USERNAME ?? process.env.NEO4J_USER ?? 'neo4j', process.env.NEO4J_PASSWORD ?? 'password'));
     return neo4jDriver;
@@ -72,8 +67,8 @@ const safeNeo4jLabel = (label) => label.replace(/[^A-Za-z0-9_]/g, '_');
 export const extractOntologyFromText = async (rawText, domain) => {
     const schema = domainSchemas[domain];
     const anonymized = await anonymizeText(rawText, domain);
-    const completion = await getOpenAiClient().chat.completions.create({
-        model: process.env.OPENAI_MODEL ?? 'gpt-4o',
+    const completion = await getAiClient().chat.completions.create({
+        model: getAiModel(),
         temperature: 0,
         response_format: ontologyResponseFormat,
         messages: [
@@ -97,7 +92,7 @@ export const extractOntologyFromText = async (rawText, domain) => {
     });
     const content = completion.choices[0]?.message.content;
     if (!content) {
-        throw new Error('OpenAI returned an empty ontology response.');
+        throw new Error('AI provider returned an empty ontology response.');
     }
     const parsed = ontologySchema.parse(JSON.parse(content));
     const allowedNodeLabels = new Set(schema.allowedNodeLabels);

@@ -1,21 +1,11 @@
 import { randomUUID } from 'node:crypto';
 import { EventEmitter } from 'node:events';
 
-import OpenAI from 'openai';
-
 import type { EntityType, Primitive } from '@ontofabric/shared/types.js';
 import { getNeo4jDriver } from './ontologyService.js';
+import { getAiClient, getAiModel } from './aiService.js';
 
 const AUTO_HEAL_THRESHOLD = 0.85;
-const embeddingModel = process.env.OPENAI_EMBEDDING_MODEL ?? 'text-embedding-3-small';
-
-let openAiClient: OpenAI | undefined;
-
-const getOpenAiClient = (): OpenAI => {
-  openAiClient ??= new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
-  return openAiClient;
-};
-
 export type SchemaDriftResult = {
   healedMappings: Record<string, string>;
   unmappedKeys: string[];
@@ -53,7 +43,7 @@ const cosineSimilarity = (left: number[], right: number[]): number => {
 
 const embed = async (values: string[]): Promise<number[][]> => {
   if (values.length === 0) return [];
-  const response = await getOpenAiClient().embeddings.create({ model: embeddingModel, input: values });
+  const response = await getAiClient('embeddings').embeddings.create({ model: getAiModel('embeddings'), input: values });
   return response.data
     .sort((left, right) => left.index - right.index)
     .map((item) => item.embedding);

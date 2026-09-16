@@ -38,7 +38,7 @@ Excel / PDF / ERP / CRM / SME input
 
 - Node.js with npm workspaces support
 - A running Neo4j instance
-- An OpenAI-compatible configuration if grounded natural-language graph queries are enabled
+- An AI provider configuration if grounded natural-language graph queries are enabled
 - Local Excel/PDF files for file-ingestion scenarios
 - A SAP Business Accelerator Hub sandbox API, if SAP synchronization is enabled
 
@@ -51,6 +51,32 @@ The backend defaults to:
 - Neo4j database: `neo4j`
 
 Use environment variables to override these defaults. Keep secrets in a local `.env` file; do not commit it.
+
+### AI provider configuration
+
+The backend uses an OpenAI-compatible client and supports OpenAI, Google Gemini, and DeepSeek. OpenAI remains the default for existing installations. Select the chat provider and model with:
+
+```env
+AI_PROVIDER=openai
+AI_MODEL=gpt-4o
+OPENAI_API_KEY=your_openai_key
+```
+
+Gemini and DeepSeek can be enabled by setting `AI_PROVIDER` and the matching key:
+
+```env
+AI_PROVIDER=gemini
+AI_MODEL=gemini-2.5-flash
+GEMINI_API_KEY=your_gemini_key
+```
+
+```env
+AI_PROVIDER=deepseek
+AI_MODEL=deepseek-chat
+DEEPSEEK_API_KEY=your_deepseek_key
+```
+
+Embeddings use OpenAI by default because Gemini and DeepSeek chat endpoints do not provide the same embedding capability. Configure a separate embedding provider/model when needed with `AI_EMBEDDING_PROVIDER`, `AI_EMBEDDING_MODEL`, and that provider's API key. The active and configured providers are available from `GET /api/ai/providers`.
 
 ### SAP sandbox configuration
 
@@ -243,7 +269,7 @@ Enter a description in the prompt bar, for example:
 Create products, suppliers, and facilities with keys and storage relationships.
 ```
 
-Select **Generate**. The frontend sends the request to `POST /api/schema/generate-from-prompt`, and the returned entity types are added to the canvas. When no usable OpenAI API key is configured, the backend returns a deterministic domain starter schema so the workflow remains available locally.
+Select **Generate**. The frontend sends the request to `POST /api/schema/generate-from-prompt`, and the returned entity types are added to the canvas. When no usable AI provider key is configured, the backend returns a deterministic domain starter schema so the workflow remains available locally.
 
 ### 5. Save the visual schema
 
@@ -425,7 +451,7 @@ Then refresh the browser.
 ### Graph assistant requests fail
 
 - Confirm the backend can reach Neo4j.
-- Confirm the required OpenAI-compatible environment configuration exists.
+- Confirm the required AI provider environment configuration exists.
 - Try a shorter question using graph terms such as node labels or relationship names.
 
 ## Development Commands

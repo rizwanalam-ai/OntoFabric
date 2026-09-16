@@ -13,6 +13,7 @@ import { LineageInspectorModal } from './components/LineageInspectorModal';
 import { SMEMatchQueue, type PendingMatch } from './components/SMEMatchQueue';
 import { SopPlanningPanel } from './components/SopPlanningPanel';
 import { SchemaDesigner } from './components/SchemaDesigner';
+import { AiSettingsModal } from './components/AiSettingsModal';
 
 const api = axios.create({ baseURL: import.meta.env.VITE_API_URL ?? 'http://localhost:3001' });
 
@@ -33,6 +34,7 @@ export default function App() {
   const [activeView, setActiveView] = useState<WorkspaceView>('explorer');
   const [selectedDomain, setSelectedDomain] = useState<DomainContext>('SUPPLY_CHAIN');
   const [quickAction, setQuickAction] = useState<'entity' | 'relationship' | null>(null);
+  const [isAiSettingsOpen, setIsAiSettingsOpen] = useState(false);
   const refreshGraph = async (domain: DomainContext = selectedDomain) => {
     try {
       setLoading(true);
@@ -86,7 +88,7 @@ export default function App() {
         <nav className="flex items-center gap-2 text-xs text-slate-400">
           <button type="button" aria-label="Search workspace" className="hidden rounded-xl p-2.5 transition hover:bg-white/10 hover:text-white sm:block"><Search size={17} /></button>
           <DomainSelector domain={selectedDomain} onDomainChange={setSelectedDomain} />
-          <button type="button" aria-label="Workspace settings" className="rounded-xl p-2.5 transition hover:bg-white/10 hover:text-white"><Settings2 size={17} /></button>
+          <button type="button" aria-label="Workspace settings" onClick={() => setIsAiSettingsOpen(true)} className="rounded-xl p-2.5 transition hover:bg-white/10 hover:text-white"><Settings2 size={17} /></button>
         </nav>
       </header>
       <nav className="border-b border-white/15 bg-[#0a1221] px-3 md:px-8" aria-label="Workspace sections">
@@ -135,6 +137,7 @@ export default function App() {
       <NodeDetailDrawer node={selectedNode} edges={graph.edges} onClose={() => setSelectedNode(null)} onViewLineage={(node) => setLineageNode(node)} onEditProperties={(node, changedFields) => setPendingAction({ node, changedFields })} />
       {pendingAction && <ActionExecutionModal node={pendingAction.node} changedFields={pendingAction.changedFields} onClose={() => setPendingAction(null)} onLocalSave={() => { applyLocalChanges(); setPendingAction(null); }} onSyncSuccess={() => { applyLocalChanges(); }} />}
       <LineageInspectorModal node={lineageNode} onClose={() => setLineageNode(null)} />
+      {isAiSettingsOpen && <AiSettingsModal onClose={() => setIsAiSettingsOpen(false)} />}
     </main>
   );
 }

@@ -1,10 +1,10 @@
 import neo4j, { type Driver } from 'neo4j-driver';
-import OpenAI from 'openai';
 import { z } from 'zod';
 
 import { domainSchemas } from '@ontofabric/shared/domainSchemas.js';
 import { DEFAULT_TEMPORAL_END, type DomainContext, type GraphEdge, type GraphNode, type NodeProvenance, type PrimitiveDictionary } from '@ontofabric/shared/types.js';
 import { anonymizeText } from './anonymizationService.js';
+import { getAiClient, getAiModel } from './aiService.js';
 
 const primitive = z.union([z.string(), z.number(), z.boolean(), z.null()]);
 const primitiveDictionary = z.record(primitive);
@@ -54,13 +54,7 @@ const ontologyResponseFormat = {
   }
 };
 
-let openAiClient: OpenAI | undefined;
 let neo4jDriver: Driver | undefined;
-
-const getOpenAiClient = (): OpenAI => {
-  openAiClient ??= new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
-  return openAiClient;
-};
 
 export const getNeo4jDriver = (): Driver => {
   neo4jDriver ??= neo4j.driver(
@@ -86,8 +80,8 @@ const safeNeo4jLabel = (label: string): string => label.replace(/[^A-Za-z0-9_]/g
 export const extractOntologyFromText = async (rawText: string, domain: DomainContext): Promise<{ nodes: GraphNode[]; edges: GraphEdge[]; privacy: { redactedCount: number; redactionId: string } }> => {
   const schema = domainSchemas[domain];
   const anonymized = await anonymizeText(rawText, domain);
-  const completion = await getOpenAiClient().chat.completions.create({
-    model: process.env.OPENAI_MODEL ?? 'gpt-4o',
+  const completion = await getAiClient().chat.completions.create({
+    model: getAiModel(),
     temperature: 0,
     response_format: ontologyResponseFormat,
     messages: [
@@ -112,7 +106,7 @@ export const extractOntologyFromText = async (rawText: string, domain: DomainCon
 
   const content = completion.choices[0]?.message.content;
   if (!content) {
-    throw new Error('OpenAI returned an empty ontology response.');
+    throw new Error('AI provider returned an empty ontology response.');
   }
 
   const parsed = ontologySchema.parse(JSON.parse(content));

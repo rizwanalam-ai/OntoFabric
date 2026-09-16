@@ -4,7 +4,7 @@ import { DEFAULT_TEMPORAL_END, type GraphNode, type PrimitiveDictionary } from '
 import { z } from 'zod';
 
 import { getNeo4jDriver } from './ontologyService.js';
-import OpenAI from 'openai';
+import { getAiClient, getAiModel, isAiConfigured } from './aiService.js';
 
 export type MatchAction = 'MERGE' | 'REJECT' | 'LINK';
 
@@ -37,13 +37,6 @@ const graphNodeSchema = z.object({
     extractionTimestamp: z.string(), rawPayload: z.string().optional(), mcpTool: z.string().optional()
   })
 });
-
-let openAiClient: OpenAI | undefined;
-
-const getOpenAiClient = (): OpenAI => {
-  openAiClient ??= new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
-  return openAiClient;
-};
 
 const asText = (value: unknown): string => String(value ?? '').trim();
 
@@ -91,9 +84,9 @@ const cosineSimilarity = (first: number[], second: number[]): number => {
 };
 
 const embeddingSimilarity = async (first: string, second: string): Promise<number | null> => {
-  if (!first || !second || !process.env.OPENAI_API_KEY || process.env.OPENAI_API_KEY === 'your_key') return null;
-  const response = await getOpenAiClient().embeddings.create({
-    model: process.env.OPENAI_EMBEDDING_MODEL ?? 'text-embedding-3-small',
+  if (!first || !second || !isAiConfigured('embeddings')) return null;
+  const response = await getAiClient('embeddings').embeddings.create({
+    model: getAiModel('embeddings'),
     input: [first, second]
   });
   return cosineSimilarity(response.data[0].embedding, response.data[1].embedding);

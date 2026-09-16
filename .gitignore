@@ -17,12 +17,12 @@ node_modules/
 logs/
 pids/
 
-# Local databases and generated data
-*.db
-*.sqlite
-*.sqlite3
-backend/data/
-backend/uploads/
+# # Local databases and generated data
+# *.db
+# *.sqlite
+# *.sqlite3
+# backend/data/
+# backend/uploads/
 
 # Test and coverage output
 coverage/

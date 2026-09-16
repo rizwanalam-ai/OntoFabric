@@ -1,14 +1,9 @@
-import OpenAI from 'openai';
 import { z } from 'zod';
 import { domainSchemas } from '@ontofabric/shared/domainSchemas.js';
 import { getNeo4jDriver } from './ontologyService.js';
+import { getAiClient, getAiModel } from './aiService.js';
 const primitive = z.union([z.string(), z.number(), z.boolean(), z.null()]);
 const primitiveDictionary = z.record(primitive);
-let openAiClient;
-const getOpenAiClient = () => {
-    openAiClient ??= new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
-    return openAiClient;
-};
 const ontologySchema = `GraphNode: id, type { id, label, attributes }, domain, secondaryLabels, sourceSystem, properties, createdAt, validFrom, validTo, transactionFrom, transactionTo.
 GraphEdge: id, source, target, relationship, properties, validFrom, validTo, transactionFrom, transactionTo.
 Entity nodes are stored with label Entity and typeLabel, sourceSystem, id, and primitive properties. Relationships are stored with type RELATED_TO and a relationship property.`;
@@ -78,8 +73,8 @@ const collectNodes = (value, result) => {
 };
 const serializeRecord = (record) => Object.fromEntries(record.keys.map((key) => [key, normalizeValue(record.get(key))]));
 export const translateToCypher = async (userPrompt, schema = ontologySchema) => {
-    const completion = await getOpenAiClient().chat.completions.create({
-        model: process.env.OPENAI_MODEL ?? 'gpt-4o',
+    const completion = await getAiClient().chat.completions.create({
+        model: getAiModel(),
         temperature: 0,
         messages: [
             {
@@ -91,7 +86,7 @@ export const translateToCypher = async (userPrompt, schema = ontologySchema) => 
     });
     const query = completion.choices[0]?.message.content?.trim().replace(/^```(?:cypher)?\s*/i, '').replace(/\s*```$/i, '').trim();
     if (!query)
-        throw new Error('OpenAI returned an empty Cypher query.');
+        throw new Error('AI provider returned an empty Cypher query.');
     return query;
 };
 export const validateReadOnlyCypher = (query) => {
@@ -138,8 +133,8 @@ export const executeGroundedQuery = async (userPrompt, domain) => {
         const sourceNodeMap = new Map();
         result.records.forEach((record) => Array.from(record.values()).forEach((value) => collectNodes(value, sourceNodeMap)));
         const context = JSON.stringify({ query: userPrompt, cypher: cypherQuery, results: serializedResults });
-        const completion = await getOpenAiClient().chat.completions.create({
-            model: process.env.OPENAI_MODEL ?? 'gpt-4o',
+        const completion = await getAiClient().chat.completions.create({
+            model: getAiModel(),
             temperature: 0,
             messages: [
                 {
