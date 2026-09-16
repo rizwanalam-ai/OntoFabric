@@ -52,7 +52,7 @@ const smeNodeSchema = z.object({
   }).strict(),
   domain: domainSchema.default('CUSTOM'),
   secondaryLabels: z.array(z.string()).default([]),
-  sourceSystem: z.enum(['ERP', 'CRM', 'EXCEL', 'CSV', 'PDF', 'WORD', 'SME_INPUT']).default('SME_INPUT'),
+  sourceSystem: z.enum(['ERP', 'CRM', 'EXCEL', 'CSV', 'PDF', 'WORD', 'SME_INPUT','DATABRICKS','SNOWFLAKE','POSTGRES','SOP']).default('SME_INPUT'),
   properties: primitiveDictionary.default({}),
   createdAt: z.string().trim().min(1).optional(),
   validFrom: z.string().datetime().optional(),

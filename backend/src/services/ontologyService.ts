@@ -13,7 +13,7 @@ const graphNodeSchema = z.object({
   type: z.object({ id: z.string().min(1), label: z.string().min(1), attributes: primitiveDictionary }),
   domain: z.enum(['SUPPLY_CHAIN', 'FINANCE', 'HEALTHCARE', 'HR_ORG', 'CUSTOM']).default('CUSTOM'),
   secondaryLabels: z.array(z.string()).default([]),
-  sourceSystem: z.enum(['ERP', 'CRM', 'EXCEL', 'CSV', 'PDF', 'WORD', 'SME_INPUT']),
+  sourceSystem: z.enum(['ERP', 'CRM', 'EXCEL', 'CSV', 'PDF', 'WORD', 'SME_INPUT','DATABRICKS','SNOWFLAKE','POSTGRES','SOP']),
   properties: primitiveDictionary,
   createdAt: z.string().min(1),
   validFrom: z.string().datetime(),
