@@ -23,6 +23,7 @@ pids/
 # *.sqlite3
 # backend/data/
 # backend/uploads/
+backend/data/ontofabric_config.db*
 
 # Test and coverage output
 coverage/

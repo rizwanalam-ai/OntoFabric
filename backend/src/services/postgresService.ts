@@ -1,18 +1,31 @@
+import { createHash } from 'node:crypto';
 import { Pool, type PoolClient } from 'pg';
+import { getActiveDataSourceConfig } from './dataSourceConfigService.js';
 
 let postgresPool: Pool | undefined;
+let postgresPoolKey = '';
 
 const getPostgresPool = (): Pool => {
-  postgresPool ??= new Pool({
-    host: process.env.POSTGRES_HOST,
-    port: Number(process.env.POSTGRES_PORT ?? 5432),
-    database: process.env.POSTGRES_DB,
-    user: process.env.POSTGRES_USER,
-    password: process.env.POSTGRES_PASSWORD,
-    ssl: {
+  const config = getActiveDataSourceConfig('POSTGRES');
+  if (!config?.host || !config.database || !config.user) {
+    throw new Error('PostgreSQL is not configured. Add and activate a connection in the Data Sources admin page.');
+  }
+  const key = createHash('sha256').update(JSON.stringify(config)).digest('hex');
+  if (!postgresPool || postgresPoolKey !== key) {
+    const previousPool = postgresPool;
+    postgresPool = new Pool({
+      host: String(config.host),
+      port: Number(config.port ?? 5432),
+      database: String(config.database),
+      user: String(config.user),
+      password: String(config.password ?? ''),
+      ssl: config.ssl === false ? false : {
       rejectUnauthorized: false
-    }
-  });
+      }
+    });
+    postgresPoolKey = key;
+    if (previousPool) void previousPool.end();
+  }
   return postgresPool;
 };
 
@@ -86,4 +99,5 @@ export const fetchPostgresForeignKeys = async (tableName: string): Promise<Postg
 export const closePostgresPool = async (): Promise<void> => {
   if (postgresPool) await postgresPool.end();
   postgresPool = undefined;
+  postgresPoolKey = '';
 };

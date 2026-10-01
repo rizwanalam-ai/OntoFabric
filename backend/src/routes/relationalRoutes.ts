@@ -8,6 +8,7 @@ import { fetchSnowflakeTableData } from '../services/snowflakeService.js';
 import { fetchDatabricksTableData } from '../services/databricksService.js';
 import { syncRelationalTableToNeo4j } from '../services/relationalGraphMapper.js';
 import { recordSyncAudit } from '../services/syncAuditService.js';
+import { linkConfiguredRecords } from '../services/crossSourceLinkerService.js';
 
 const router = Router();
 const domainValues = Object.keys(domainSchemas) as [RelationalSyncRequest['domain'], ...RelationalSyncRequest['domain'][]];
@@ -42,8 +43,9 @@ router.post('/sync/postgres', async (request, response) => {
       relationshipType: relationshipTypeForTable(foreignKey.foreignTableName)
     }));
     const result = await syncRelationalTableToNeo4j(payload, records, foreignKeys);
+    const autoLinked = await linkConfiguredRecords(records.map((record) => ({ ...record, id: String(record[payload.primaryKeyColumn]) })), payload.entityLabel);
     await recordSyncAudit({ sourceType: payload.sourceType, sourceReference: payload.tableName, tableName: payload.tableName, entityLabel: payload.entityLabel, domain: payload.domain, rowCount: records.length, nodeCount: result.nodeCount, edgeCount: Object.values(result.relationshipCounts).reduce((sum, count) => sum + count, 0), status: 'SUCCEEDED', startedAt, completedAt: new Date().toISOString() });
-    response.status(201).json({ ...result, sourceType: payload.sourceType, tableName: payload.tableName });
+    response.status(201).json({ ...result, autoLinked, sourceType: payload.sourceType, tableName: payload.tableName });
   } catch (error) {
     await recordSyncAudit({ sourceType: payload.sourceType, sourceReference: payload.tableName, tableName: payload.tableName, entityLabel: payload.entityLabel, domain: payload.domain, rowCount: 0, nodeCount: 0, edgeCount: 0, status: 'FAILED', startedAt, completedAt: new Date().toISOString(), errorMessage: errorMessage(error) });
     response.status(502).json({ error: 'PostgreSQL sync failed.', message: errorMessage(error) });
@@ -62,8 +64,9 @@ router.post('/sync/snowflake', async (request, response) => {
   try {
     const records = await fetchSnowflakeTableData(payload.tableName, payload.limit);
     const result = await syncRelationalTableToNeo4j(payload, records);
+    const autoLinked = await linkConfiguredRecords(records.map((record) => ({ ...record, id: String(record[payload.primaryKeyColumn]) })), payload.entityLabel);
     await recordSyncAudit({ sourceType: payload.sourceType, sourceReference: payload.tableName, tableName: payload.tableName, entityLabel: payload.entityLabel, domain: payload.domain, rowCount: records.length, nodeCount: result.nodeCount, edgeCount: Object.values(result.relationshipCounts).reduce((sum, count) => sum + count, 0), status: 'SUCCEEDED', startedAt, completedAt: new Date().toISOString() });
-    response.status(201).json({ ...result, sourceType: payload.sourceType, tableName: payload.tableName });
+    response.status(201).json({ ...result, autoLinked, sourceType: payload.sourceType, tableName: payload.tableName });
   } catch (error) {
     await recordSyncAudit({ sourceType: payload.sourceType, sourceReference: payload.tableName, tableName: payload.tableName, entityLabel: payload.entityLabel, domain: payload.domain, rowCount: 0, nodeCount: 0, edgeCount: 0, status: 'FAILED', startedAt, completedAt: new Date().toISOString(), errorMessage: errorMessage(error) });
     response.status(502).json({ error: 'Snowflake sync failed.', message: errorMessage(error) });
@@ -81,8 +84,9 @@ router.post('/sync/databricks', async (request, response) => {
   try {
     const records = await fetchDatabricksTableData(payload.tableName, payload.limit);
     const result = await syncRelationalTableToNeo4j(payload, records);
+    const autoLinked = await linkConfiguredRecords(records.map((record) => ({ ...record, id: String(record[payload.primaryKeyColumn]) })), payload.entityLabel);
     await recordSyncAudit({ sourceType: payload.sourceType, sourceReference: payload.tableName, tableName: payload.tableName, entityLabel: payload.entityLabel, domain: payload.domain, rowCount: records.length, nodeCount: result.nodeCount, edgeCount: Object.values(result.relationshipCounts).reduce((sum, count) => sum + count, 0), status: 'SUCCEEDED', startedAt, completedAt: new Date().toISOString() });
-    response.status(201).json({ ...result, sourceType: payload.sourceType, tableName: payload.tableName });
+    response.status(201).json({ ...result, autoLinked, sourceType: payload.sourceType, tableName: payload.tableName });
   } catch (error) {
     await recordSyncAudit({ sourceType: payload.sourceType, sourceReference: payload.tableName, tableName: payload.tableName, entityLabel: payload.entityLabel, domain: payload.domain, rowCount: 0, nodeCount: 0, edgeCount: 0, status: 'FAILED', startedAt, completedAt: new Date().toISOString(), errorMessage: errorMessage(error) });
     response.status(502).json({ error: 'Databricks sync failed.', message: errorMessage(error) });

@@ -21,6 +21,7 @@ import { executeLocalGraphUpdate, executeWriteBackAction } from '../services/act
 import { syncSapSandbox } from '../services/sapService.js';
 import { getFileSourceType, parseUploadedFile } from '../services/fileIngestionService.js';
 import { recordSyncAudit } from '../services/syncAuditService.js';
+import { getAutoLinkedRelationshipStats, linkConfiguredRecords } from '../services/crossSourceLinkerService.js';
 
 const router = Router();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 25 * 1024 * 1024 } });
@@ -85,6 +86,21 @@ const smeEntitySchema = z.object({
 });
 
 const errorMessage = (error: unknown): string => error instanceof Error ? error.message : 'Request failed.';
+
+const linkIngestedNodes = async (nodes: GraphNode[]): Promise<Record<string, number>> => {
+  const counts: Record<string, number> = {};
+  const byLabel = new Map<string, Record<string, unknown>[]>();
+  for (const node of nodes) {
+    byLabel.set(node.type.label, [...(byLabel.get(node.type.label) ?? []), { ...node.properties, id: node.id }]);
+  }
+  for (const [label, records] of byLabel) {
+    const linked = await linkConfiguredRecords(records, label);
+    for (const [relationshipType, count] of Object.entries(linked)) {
+      counts[relationshipType] = (counts[relationshipType] ?? 0) + count;
+    }
+  }
+  return counts;
+};
 
 const sharedDownloadUrl = (source: 'GOOGLE_DRIVE' | 'DROPBOX', value: string): URL => {
   const url = new URL(value);
@@ -246,8 +262,9 @@ router.post('/ingest/file', async (request, response) => {
     const nodes = graph.nodes.map((node) => ({ ...node, domain, sourceSystem: node.sourceSystem ?? detectedSourceType }));
 
     await persistGraphToNeo4j(nodes, graph.edges);
+    const autoLinked = await linkIngestedNodes(nodes);
     await recordSyncAudit({ sourceType: detectedSourceType, sourceReference: filePath, fileName: path.basename(filePath), domain, rowCount: Array.isArray(parsedSource) ? parsedSource.length : 1, nodeCount: nodes.length, edgeCount: graph.edges.length, status: 'SUCCEEDED', startedAt, completedAt: new Date().toISOString() });
-    response.status(201).json({ sourceType: detectedSourceType, domain, schemaDrift, ...graph, nodes: redactNodeProperties(nodes, getUserRole(request)) });
+    response.status(201).json({ sourceType: detectedSourceType, domain, schemaDrift, autoLinked, ...graph, nodes: redactNodeProperties(nodes, getUserRole(request)) });
   } catch (error) {
     await recordSyncAudit({ sourceType: detectedSourceType, sourceReference: filePath, fileName: path.basename(filePath), domain, rowCount: 0, nodeCount: 0, edgeCount: 0, status: 'FAILED', startedAt, completedAt: new Date().toISOString(), errorMessage: errorMessage(error) });
     response.status(502).json({ error: 'File ingestion failed.', message: errorMessage(error) });
@@ -306,8 +323,9 @@ router.post('/ingest/upload', upload.single('file'), async (request, response) =
     const graph = await extractOntologyFromText(rawText, parsedRequest.data.domain);
     const nodes = graph.nodes.map((node) => ({ ...node, domain: parsedRequest.data.domain, sourceSystem: node.sourceSystem ?? parsedFile.sourceType }));
     await persistGraphToNeo4j(nodes, graph.edges);
+    const autoLinked = await linkIngestedNodes(nodes);
     await recordSyncAudit({ sourceType: parsedFile.sourceType, sourceReference: sourceReference, fileName, domain: parsedRequest.data.domain, rowCount: Array.isArray(parsedFile.parsedSource) ? parsedFile.parsedSource.length : 1, nodeCount: nodes.length, edgeCount: graph.edges.length, status: 'SUCCEEDED', startedAt, completedAt: new Date().toISOString() });
-    response.status(201).json({ source: sourceReference, fileName, sourceType: parsedFile.sourceType, domain: parsedRequest.data.domain, schemaDrift, ...graph, nodes: redactNodeProperties(nodes, getUserRole(request)) });
+    response.status(201).json({ source: sourceReference, fileName, sourceType: parsedFile.sourceType, domain: parsedRequest.data.domain, schemaDrift, autoLinked, ...graph, nodes: redactNodeProperties(nodes, getUserRole(request)) });
   } catch (error) {
     await recordSyncAudit({ sourceType: parsedRequest.data.domain === 'CUSTOM' ? 'UPLOAD' : 'UPLOAD', sourceReference: parsedRequest.data.source, fileName: parsedRequest.data.fileName, domain: parsedRequest.data.domain, rowCount: 0, nodeCount: 0, edgeCount: 0, status: 'FAILED', startedAt, completedAt: new Date().toISOString(), errorMessage: errorMessage(error) });
     response.status(502).json({ error: 'File upload ingestion failed.', message: errorMessage(error) });
@@ -330,22 +348,24 @@ router.post('/integrations/sap/sync', async (_request, response) => {
 router.get('/ontology/graph', async (request, response) => {
   try {
     const asOfTimestamp = typeof request.query.asOfTimestamp === 'string' ? request.query.asOfTimestamp : undefined;
-    const domain = typeof request.query.domain === 'string' ? domainSchema.safeParse(request.query.domain) : undefined;
-    if (domain && !domain.success) {
-      response.status(400).json({ error: 'domain must be a supported domain context.', details: domain.error.flatten() });
-      return;
-    }
     if (asOfTimestamp && Number.isNaN(Date.parse(asOfTimestamp))) {
       response.status(400).json({ error: 'asOfTimestamp must be a valid ISO date.' });
       return;
     }
-    const selectedDomain = domain?.success ? domain.data : undefined;
     const graph = asOfTimestamp
-      ? await queryGraphAtTimestamp(new Date(asOfTimestamp).toISOString(), selectedDomain)
-      : await queryGraphFromNeo4j(selectedDomain);
+      ? await queryGraphAtTimestamp(new Date(asOfTimestamp).toISOString())
+      : await queryGraphFromNeo4j();
     response.json({ ...graph, nodes: redactNodeProperties(graph.nodes as GraphNode[], getUserRole(request)) });
   } catch (error) {
     response.status(503).json({ error: 'Unable to query ontology graph.', message: errorMessage(error) });
+  }
+});
+
+router.get('/relationships/auto-linked-stats', async (_request, response) => {
+  try {
+    response.json({ stats: await getAutoLinkedRelationshipStats() });
+  } catch (error) {
+    response.status(503).json({ error: 'Unable to load auto-linked relationship statistics.', message: errorMessage(error) });
   }
 });
 

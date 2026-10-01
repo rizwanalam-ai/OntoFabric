@@ -1,5 +1,6 @@
 import snowflake from 'snowflake-sdk';
 import type { Connection, SnowflakeError } from 'snowflake-sdk';
+import { getActiveDataSourceConfig } from './dataSourceConfigService.js';
 
 const validateIdentifier = (value: string, name: string): string => {
   const identifier = value.trim();
@@ -16,14 +17,16 @@ const normalizeLimit = (limit: number): number => {
   return Math.min(limit, 10000);
 };
 
-const createSnowflakeConnection = (): Connection => snowflake.createConnection({
-  account: process.env.SNOWFLAKE_ACCOUNT,
-  username: process.env.SNOWFLAKE_USERNAME,
-  password: process.env.SNOWFLAKE_PASSWORD,
-  database: process.env.SNOWFLAKE_DATABASE,
-  schema: process.env.SNOWFLAKE_SCHEMA,
-  warehouse: process.env.SNOWFLAKE_WAREHOUSE
-});
+const createSnowflakeConnection = (): Connection => {
+  const config = getActiveDataSourceConfig('SNOWFLAKE');
+  if (!config?.account || !config.username || !config.database || !config.schema || !config.warehouse) {
+    throw new Error('Snowflake is not configured. Add and activate a connection in the Data Sources admin page.');
+  }
+  return snowflake.createConnection({
+    account: String(config.account), username: String(config.username), password: String(config.password ?? ''),
+    database: String(config.database), schema: String(config.schema), warehouse: String(config.warehouse)
+  });
+};
 
 const connect = (connection: Connection): Promise<Connection> => new Promise((resolve, reject) => {
   connection.connect((error, connectedConnection) => {

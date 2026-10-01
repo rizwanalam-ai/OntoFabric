@@ -1,3 +1,5 @@
+import { getActiveDataSourceConfig } from './dataSourceConfigService.js';
+
 type DatabricksStatementResponse = {
   statement_id?: string;
   status?: { state?: 'PENDING' | 'RUNNING' | 'SUCCEEDED' | 'FAILED' | 'CANCELED' | 'CLOSED'; error?: { message?: string } };
@@ -17,22 +19,23 @@ const validateIdentifier = (value: string, name: string): string => {
 const quoteIdentifier = (identifier: string): string => identifier.split('.').map((part) => `\`${part.replace(/`/g, '``')}\``).join('.');
 const normalizeLimit = (limit: number): number => Math.min(Math.max(Math.floor(limit), 1), 10000);
 
-const getDatabricksConfig = (): { baseUrl: string; httpPath: string; token: string; warehouseId?: string } => {
-  const hostname = process.env.DATABRICKS_SERVER_HOSTNAME?.trim();
-  const httpPath = process.env.DATABRICKS_HTTP_PATH?.trim();
-  const token = process.env.DATABRICKS_TOKEN?.trim();
-  const missing = [
-    !hostname && 'DATABRICKS_SERVER_HOSTNAME',
-    !httpPath && 'DATABRICKS_HTTP_PATH',
-    !token && 'DATABRICKS_TOKEN'
-  ].filter((value): value is string => Boolean(value));
-  if (missing.length > 0) throw new Error(`Databricks configuration is missing: ${missing.join(', ')}. Restart the backend after updating its environment.`);
-  const configuredHostname = hostname as string;
-  const configuredHttpPath = httpPath as string;
-  const configuredToken = token as string;
-  const warehouseId = process.env.DATABRICKS_WAREHOUSE_ID?.trim() || configuredHttpPath.match(/\/warehouses\/([^/]+)/)?.[1];
-  if (!warehouseId) throw new Error('Databricks requires DATABRICKS_WAREHOUSE_ID or a warehouse ID in DATABRICKS_HTTP_PATH.');
-  return { baseUrl: `https://${configuredHostname}`, httpPath: configuredHttpPath, token: configuredToken, warehouseId };
+const getDatabricksConfig = (): { baseUrl: string; httpPath: string; token: string; warehouseId: string; catalog?: string; schema?: string } => {
+  const config = getActiveDataSourceConfig('DATABRICKS');
+  const hostname = String(config?.hostname ?? '').trim();
+  const httpPath = String(config?.httpPath ?? '').trim();
+  const token = String(config?.token ?? '').trim();
+  const missing = [!hostname && 'hostname', !httpPath && 'HTTP path', !token && 'token'].filter(Boolean);
+  if (missing.length > 0) throw new Error(`Databricks configuration is missing ${missing.join(', ')}. Add and activate a connection in the Data Sources admin page.`);
+  const warehouseId = String(config?.warehouseId ?? '').trim() || httpPath.match(/\/warehouses\/([^/]+)/)?.[1];
+  if (!warehouseId) throw new Error('Databricks requires a warehouse ID or a warehouse ID in its HTTP path.');
+  return {
+    baseUrl: `https://${hostname.replace(/^https?:\/\//, '').replace(/\/$/, '')}`,
+    httpPath,
+    token,
+    warehouseId,
+    catalog: String(config?.catalog ?? '').trim() || undefined,
+    schema: String(config?.schema ?? '').trim() || undefined
+  };
 };
 
 const databricksRequest = async (baseUrl: string, token: string, path: string, init?: RequestInit): Promise<DatabricksStatementResponse> => {
@@ -48,8 +51,8 @@ const databricksRequest = async (baseUrl: string, token: string, path: string, i
 export const fetchDatabricksTableData = async (tableName: string, limit = 1000): Promise<Record<string, unknown>[]> => {
   const table = validateIdentifier(tableName, 'table name');
   const config = getDatabricksConfig();
-  const catalog = process.env.DATABRICKS_CATALOG?.trim();
-  const schema = process.env.DATABRICKS_SCHEMA?.trim();
+  const catalog = config.catalog;
+  const schema = config.schema;
   const qualifiedTable = table.includes('.') ? quoteIdentifier(table) : [catalog, schema, table].filter(Boolean).map((part) => quoteIdentifier(part!)).join('.');
   if (!qualifiedTable) throw new Error('Databricks table name is required.');
   const statement = await databricksRequest(config.baseUrl, config.token, '/api/2.0/sql/statements', {

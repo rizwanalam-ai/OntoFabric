@@ -3,7 +3,7 @@ import axios from 'axios';
 import { Check, ChevronLeft, ChevronRight, Link2, LoaderCircle, ShieldAlert, X } from 'lucide-react';
 import { api } from '../api';
 
-import type { DomainContext, GraphNode } from '@ontofabric/shared/types.js';
+import type { GraphNode } from '@ontofabric/shared/types.js';
 
 export type PendingMatch = {
   pendingId: string;
@@ -17,7 +17,6 @@ export type PendingMatch = {
 
 type SMEMatchQueueProps = {
   matches: PendingMatch[];
-  domain: DomainContext;
   onResolved: (pendingId: string) => Promise<void>;
 };
 
@@ -59,7 +58,7 @@ function EntityCard({ label, node, conflicts }: { label: string; node: GraphNode
   );
 }
 
-export function SMEMatchQueue({ matches, domain, onResolved }: SMEMatchQueueProps) {
+export function SMEMatchQueue({ matches, onResolved }: SMEMatchQueueProps) {
   const [index, setIndex] = useState(0);
   const [busy, setBusy] = useState('');
   const [error, setError] = useState('');
@@ -84,7 +83,7 @@ export function SMEMatchQueue({ matches, domain, onResolved }: SMEMatchQueueProp
     <section className="rounded-[1.75rem] border border-white/15 bg-[#0c1525] p-5 md:p-6">
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
-          <p className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-[0.22em] text-amber-300"><ShieldAlert size={13} /> SME approval queue · {domain}</p>
+          <p className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-[0.22em] text-amber-300"><ShieldAlert size={13} /> Cross-source approval queue</p>
           <h3 className="mt-2 text-xl font-semibold text-white">Resolve possible duplicates</h3>
           <p className="mt-1 text-xs text-slate-300">Review low-confidence matches before they enter the canonical graph.</p>
         </div>

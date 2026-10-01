@@ -1,4 +1,5 @@
 import { DEFAULT_TEMPORAL_END, type GraphNode, type Primitive, type PrimitiveDictionary } from '@ontofabric/shared/types.js';
+import { getActiveDataSourceConfig } from './dataSourceConfigService.js';
 
 const primitive = (value: unknown): value is Primitive => (
   typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean' || value === null
@@ -22,20 +23,22 @@ const recordId = (record: Record<string, unknown>, index: number): string => {
   return String(candidate ?? `SAP-${index + 1}`);
 };
 
-const configuredUrl = (): URL => {
-  const baseUrl = process.env.SAP_API_BASE_URL?.trim();
-  const apiPath = process.env.SAP_API_PATH?.trim() ?? '/';
-  if (!baseUrl) throw new Error('SAP integration is not configured. Set SAP_API_BASE_URL in the backend environment.');
+const configuredUrl = (config: Record<string, string | number | boolean>): URL => {
+  const baseUrl = String(config.baseUrl).trim();
+  const apiPath = String(config.apiPath ?? '/').trim();
+  if (!baseUrl || baseUrl === 'undefined') throw new Error('SAP is not configured. Add and activate a connection in the Data Sources admin page.');
   return new URL(apiPath, baseUrl.endsWith('/') ? baseUrl : `${baseUrl}/`);
 };
 
 export const syncSapSandbox = async (): Promise<{ sourceType: 'ERP'; entityType: string; count: number; nodes: GraphNode[] }> => {
-  const url = configuredUrl();
+  const config = getActiveDataSourceConfig('SAP');
+  if (!config) throw new Error('SAP is not configured. Add and activate a connection in the Data Sources admin page.');
+  const url = configuredUrl(config);
   const headers: Record<string, string> = { Accept: 'application/json', DataServiceVersion: '2.0' };
-  const apiKey = process.env.SAP_API_KEY?.trim();
-  const token = process.env.SAP_API_TOKEN?.trim();
-  const username = process.env.SAP_USERNAME?.trim();
-  const password = process.env.SAP_PASSWORD;
+  const apiKey = String(config.apiKey ?? '').trim();
+  const token = String(config.apiToken ?? '').trim();
+  const username = String(config.username ?? '').trim();
+  const password = String(config.password ?? '');
   if (apiKey) headers.APIKey = apiKey;
   if (token) headers.Authorization = `Bearer ${token}`;
   if (username && password) headers.Authorization = `Basic ${Buffer.from(`${username}:${password}`).toString('base64')}`;
@@ -58,7 +61,7 @@ export const syncSapSandbox = async (): Promise<{ sourceType: 'ERP'; entityType:
   }
   const payload = await response.json() as unknown;
   const records = getRecords(payload);
-  const entityType = process.env.SAP_ENTITY_TYPE?.trim() || 'SAPRecord';
+  const entityType = String(config.entityType ?? 'SAPRecord').trim() || 'SAPRecord';
   const timestamp = new Date().toISOString();
   const nodes = records.map((record, index): GraphNode => ({
     id: `SAP-${entityType.toUpperCase()}-${recordId(record, index)}`,

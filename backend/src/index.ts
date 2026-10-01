@@ -11,6 +11,8 @@ import schemaRouter from './routes/schema.js';
 import relationalRouter from './routes/relationalRoutes.js';
 import aiRouter from './routes/ai.js';
 import auditRouter from './routes/audit.js';
+import dataSourcesRouter from './routes/dataSources.js';
+import businessIntegrationsRouter from './routes/businessIntegrations.js';
 
 dotenv.config({ path: path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../.env') });
 
@@ -27,6 +29,8 @@ app.use('/api/schema', schemaRouter);
 app.use('/api', relationalRouter);
 app.use('/api/ai', aiRouter);
 app.use('/api/audit', auditRouter);
+app.use('/api/admin/data-sources', dataSourcesRouter);
+app.use('/api/integrations', businessIntegrationsRouter);
 
 app.get('/health', (_request, response) => {
   response.json({ status: 'ok', service: 'ontofabric-backend' });

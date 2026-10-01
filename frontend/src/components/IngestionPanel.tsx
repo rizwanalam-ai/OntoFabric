@@ -3,7 +3,7 @@ import axios from 'axios';
 import { AlertCircle, ArrowUpRight, CheckCircle2, Cloud, Database, FileSpreadsheet, FileText, Link2, LoaderCircle, Plus, RefreshCw, ScrollText, Snowflake, Trash2, Upload, X } from 'lucide-react';
 import { api } from '../api';
 
-import type { DomainContext, GraphNode, Primitive } from '@ontofabric/shared/types.js';
+import type { GraphNode, Primitive } from '@ontofabric/shared/types.js';
 import { PrivacyShieldBadge } from './PrivacyShieldBadge';
 import { SchemaDriftBanner, type SchemaDriftResult } from './SchemaDriftBanner';
 
@@ -12,13 +12,15 @@ type PropertyRow = { id: string; key: string; value: string; valueType: Property
 type SapSyncStatus = { state: 'idle' | 'syncing' | 'success' | 'error'; message: string; count?: number };
 type RelationalSyncStatus = { state: 'idle' | 'syncing' | 'success' | 'error'; message: string; count?: number };
 type RelationalSource = 'POSTGRES' | 'SNOWFLAKE' | 'DATABRICKS';
+type BusinessSource = 'hubspot' | 'monday' | 'salesforce' | 'odoo';
+type BusinessSyncStatus = { state: 'idle' | 'syncing' | 'success' | 'error'; message: string };
 type FileSource = 'LOCAL' | 'GOOGLE_DRIVE' | 'DROPBOX';
-type SyncAuditRecord = { id: string; sourceType: string; sourceReference: string; tableName?: string; fileName?: string; entityLabel?: string; domain: string; rowCount: number; nodeCount: number; edgeCount: number; status: 'SUCCEEDED' | 'FAILED'; startedAt: string; completedAt: string; errorMessage?: string };
+type SyncAuditRecord = { id: string; sourceType: string; sourceReference: string; tableName?: string; fileName?: string; entityLabel?: string; rowCount: number; nodeCount: number; edgeCount: number; status: 'SUCCEEDED' | 'FAILED'; startedAt: string; completedAt: string; errorMessage?: string };
 type SyncAuditResponse = { days: number; records: SyncAuditRecord[] };
 
 type IngestionPanelProps = {
   onRefresh: () => Promise<void>;
-  domain: DomainContext;
+  onConfigureDataSources: () => void;
   id?: string;
   graphNodes?: Array<Pick<GraphNode, 'id' | 'type'>>;
   entityLabels?: string[];
@@ -59,14 +61,14 @@ const validatePropertyRows = (rows: PropertyRow[]) => {
   return errors;
 };
 
-export function IngestionPanel({ onRefresh, id, domain, graphNodes = [], entityLabels = [], relationshipNames = [], quickAction = null, onQuickActionHandled }: IngestionPanelProps) {
+export function IngestionPanel({ onRefresh, onConfigureDataSources, id, graphNodes = [], entityLabels = [], relationshipNames = [], quickAction = null, onQuickActionHandled }: IngestionPanelProps) {
   const [filePath, setFilePath] = useState('');
   const [fileSource, setFileSource] = useState<FileSource>('LOCAL');
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [remoteFileUrl, setRemoteFileUrl] = useState('');
   const [remoteFileName, setRemoteFileName] = useState('');
   const [hubOpen, setHubOpen] = useState(false);
-  const [hubTab, setHubTab] = useState<'files' | 'databases' | 'warehouses' | 'sme' | 'audit'>('files');
+  const [hubTab, setHubTab] = useState<'files' | 'databases' | 'warehouses' | 'business' | 'sme' | 'audit'>('files');
   const [busy, setBusy] = useState('');
   const [notice, setNotice] = useState('');
   const [sapStatus, setSapStatus] = useState<SapSyncStatus>({ state: 'idle', message: '' });
@@ -76,6 +78,12 @@ export function IngestionPanel({ onRefresh, id, domain, graphNodes = [], entityL
     DATABRICKS: { state: 'idle', message: '' }
   });
   const [relationalToast, setRelationalToast] = useState<{ state: 'success' | 'error'; message: string } | null>(null);
+  const [businessSyncStatus, setBusinessSyncStatus] = useState<Record<BusinessSource, BusinessSyncStatus>>({
+    hubspot: { state: 'idle', message: '' },
+    monday: { state: 'idle', message: '' },
+    salesforce: { state: 'idle', message: '' },
+    odoo: { state: 'idle', message: '' }
+  });
   const [postgresTable, setPostgresTable] = useState('');
   const [postgresPrimaryKey, setPostgresPrimaryKey] = useState('');
   const [postgresEntityLabel, setPostgresEntityLabel] = useState('');
@@ -144,7 +152,7 @@ export function IngestionPanel({ onRefresh, id, domain, graphNodes = [], entityL
       if (fileSource !== 'LOCAL' && !remoteFileUrl.trim()) throw new Error('Paste a Google Drive or Dropbox shared link first.');
       const formData = new FormData();
       formData.append('source', fileSource);
-      formData.append('domain', domain);
+      formData.append('domain', 'CUSTOM');
       formData.append('targetEntity', driftTargetEntity.trim());
       if (selectedFile) formData.append('file', selectedFile);
       if (remoteFileUrl.trim()) formData.append('remoteUrl', remoteFileUrl.trim());
@@ -156,7 +164,7 @@ export function IngestionPanel({ onRefresh, id, domain, graphNodes = [], entityL
     }
     if (!filePath.trim()) throw new Error('Choose a file or enter a server file path first.');
     if (sourceType === 'CSV' || sourceType === 'WORD') throw new Error('CSV and Word files must be selected with the browser picker or a shared link.');
-    const { data } = await api.post<{ schemaDrift?: SchemaDriftResult; privacy?: { redactedCount: number } }>('/api/ingest/file', { filePath: filePath.trim(), sourceType, domain, targetEntity: driftTargetEntity.trim() });
+    const { data } = await api.post<{ schemaDrift?: SchemaDriftResult; privacy?: { redactedCount: number } }>('/api/ingest/file', { filePath: filePath.trim(), sourceType, domain: 'CUSTOM', targetEntity: driftTargetEntity.trim() });
     if (data.schemaDrift) setDriftResult(data.schemaDrift);
     if (data.privacy) setRedactedCount(data.privacy.redactedCount);
   });
@@ -184,7 +192,7 @@ export function IngestionPanel({ onRefresh, id, domain, graphNodes = [], entityL
     setNotice('');
     setSapStatus({ state: 'syncing', message: 'Connecting to SAP Business Accelerator Hub...' });
     try {
-      const { data } = await api.post<{ count: number; entityType: string }>('/api/integrations/sap/sync', undefined, { params: { domain } });
+      const { data } = await api.post<{ count: number; entityType: string }>('/api/integrations/sap/sync');
       await onRefresh();
       setSapStatus({ state: 'success', count: data.count, message: `Imported ${data.count} ${data.entityType} record${data.count === 1 ? '' : 's'}.` });
     } catch (error) {
@@ -194,6 +202,20 @@ export function IngestionPanel({ onRefresh, id, domain, graphNodes = [], entityL
       setSapStatus({ state: 'error', message });
     } finally {
       setBusy('');
+    }
+  };
+
+  const syncBusinessSource = async (source: BusinessSource) => {
+    setBusinessSyncStatus((current) => ({ ...current, [source]: { state: 'syncing', message: 'Connecting and syncing records...' } }));
+    try {
+      const { data } = await api.post<{ count: number; entityType: string }>(`/api/integrations/${source}/sync`);
+      await onRefresh();
+      setBusinessSyncStatus((current) => ({ ...current, [source]: { state: 'success', message: `Imported ${data.count} ${data.entityType} records.` } }));
+    } catch (error) {
+      const message = axios.isAxiosError(error)
+        ? error.response?.data?.message ?? error.response?.data?.error ?? `${source} sync failed.`
+        : error instanceof Error ? error.message : `${source} sync failed.`;
+      setBusinessSyncStatus((current) => ({ ...current, [source]: { state: 'error', message } }));
     }
   };
 
@@ -215,7 +237,7 @@ export function IngestionPanel({ onRefresh, id, domain, graphNodes = [], entityL
     setRelationalStatus((current) => ({ ...current, [sourceType]: { state: 'syncing', message: 'Syncing Relational Schema...' } }));
     try {
       const endpoint = isPostgres ? '/api/sync/postgres' : isSnowflake ? '/api/sync/snowflake' : '/api/sync/databricks';
-      const { data } = await api.post<{ nodeCount: number; relationshipCounts?: Record<string, number> }>(endpoint, { tableName, primaryKeyColumn, entityLabel, domain });
+      const { data } = await api.post<{ nodeCount: number; relationshipCounts?: Record<string, number> }>(endpoint, { tableName, primaryKeyColumn, entityLabel, domain: 'CUSTOM' });
       await onRefresh();
       const message = `Imported ${data.nodeCount} ${entityLabel} record${data.nodeCount === 1 ? '' : 's'} and refreshed the graph.`;
       setRelationalStatus((current) => ({ ...current, [sourceType]: { state: 'success', count: data.nodeCount, message } }));
@@ -243,7 +265,7 @@ export function IngestionPanel({ onRefresh, id, domain, graphNodes = [], entityL
         properties,
         createdAt: new Date().toISOString()
       }
-    }, { params: { domain } });
+    });
     setNodeLabel('');
     setPropertyRows([createPropertyRow()]);
   });
@@ -257,7 +279,7 @@ export function IngestionPanel({ onRefresh, id, domain, graphNodes = [], entityL
         relationship: relationship.trim(),
         properties: {}
       }
-    }, { params: { domain } });
+    });
     setSourceNode('');
     setTargetNode('');
     setRelationship('');
@@ -280,17 +302,23 @@ export function IngestionPanel({ onRefresh, id, domain, graphNodes = [], entityL
           <p className="px-1 text-[10px] font-bold uppercase tracking-[0.18em] text-slate-600">Connectors</p>
           <div className="flex items-center gap-2 rounded-xl border border-white/5 bg-white/[0.03] px-3 py-2"><Database size={14} className="text-indigo-300" /> PostgreSQL</div>
           <div className="flex items-center gap-2 rounded-xl border border-white/5 bg-white/[0.03] px-3 py-2"><Snowflake size={14} className="text-sky-300" /> Snowflake</div>
+          <div className="flex items-center gap-2 rounded-xl border border-white/5 bg-white/[0.03] px-3 py-2"><Cloud size={14} className="text-orange-300" /> Databricks</div>
+          <div className="flex items-center gap-2 rounded-xl border border-white/5 bg-white/[0.03] px-3 py-2"><Database size={14} className="text-teal-300" /> SAP</div>
+          <div className="flex items-center gap-2 rounded-xl border border-white/5 bg-white/[0.03] px-3 py-2"><Database size={14} className="text-orange-300" /> HubSpot</div>
+          <div className="flex items-center gap-2 rounded-xl border border-white/5 bg-white/[0.03] px-3 py-2"><Database size={14} className="text-amber-300" /> monday.com</div>
+          <div className="flex items-center gap-2 rounded-xl border border-white/5 bg-white/[0.03] px-3 py-2"><Database size={14} className="text-blue-300" /> Salesforce</div>
+          <div className="flex items-center gap-2 rounded-xl border border-white/5 bg-white/[0.03] px-3 py-2"><Database size={14} className="text-rose-300" /> Odoo</div>
           <div className="flex items-center gap-2 rounded-xl border border-white/5 bg-white/[0.03] px-3 py-2"><FileText size={14} className="text-amber-300" /> Files &amp; APIs</div>
         </div>
       </div>
       {hubOpen && <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#030711]/70 p-4 backdrop-blur-sm" onMouseDown={() => setHubOpen(false)}>
         <div className="flex max-h-[min(850px,calc(100vh-2rem))] w-full max-w-3xl flex-col overflow-hidden rounded-3xl border border-white/10 bg-[#0c1525] shadow-2xl shadow-black/60" onMouseDown={(event) => event.stopPropagation()}>
           <header className="flex items-start justify-between border-b border-white/10 px-5 py-4">
-            <div><p className="text-[10px] font-bold uppercase tracking-[0.2em] text-cyan-300">Data connections</p><h2 className="mt-1 text-lg font-semibold text-white">Add a source to the mesh</h2><p className="mt-1 text-xs text-slate-500">Active domain: <span className="font-semibold text-cyan-200">{domain}</span></p></div>
+            <div><p className="text-[10px] font-bold uppercase tracking-[0.2em] text-cyan-300">Data connections</p><h2 className="mt-1 text-lg font-semibold text-white">Add a source to the mesh</h2></div>
             <button type="button" aria-label="Close data connections" onClick={() => setHubOpen(false)} className="rounded-xl p-2 text-slate-400 hover:bg-white/10 hover:text-white"><X size={18} /></button>
           </header>
           <div className="flex gap-1 overflow-x-auto border-b border-white/10 px-5 pt-3">
-            {([['files', 'Files'], ['databases', 'Databases'], ['warehouses', 'Cloud Warehouses'], ['sme', 'SME Form'], ['audit', 'Sync Audit']] as const).map(([tab, label]) => <button key={tab} type="button" onClick={() => setHubTab(tab)} className={`whitespace-nowrap border-b-2 px-3 pb-3 text-xs font-semibold transition ${hubTab === tab ? 'border-cyan-300 text-cyan-200' : 'border-transparent text-slate-500 hover:text-slate-200'}`}>{label}</button>)}
+            {([['files', 'Files'], ['databases', 'Databases'], ['warehouses', 'Cloud Warehouses'], ['business', 'CRM & ERP'], ['sme', 'SME Form'], ['audit', 'Sync Audit']] as const).map(([tab, label]) => <button key={tab} type="button" onClick={() => setHubTab(tab)} className={`whitespace-nowrap border-b-2 px-3 pb-3 text-xs font-semibold transition ${hubTab === tab ? 'border-cyan-300 text-cyan-200' : 'border-transparent text-slate-500 hover:text-slate-200'}`}>{label}</button>)}
           </div>
           <div className="overflow-y-auto">
       <div className="space-y-7 p-5 lg:p-6">
@@ -298,14 +326,13 @@ export function IngestionPanel({ onRefresh, id, domain, graphNodes = [], entityL
           <div className="mb-4 flex items-center gap-2"><ScrollText size={15} className="text-cyan-300" /><div><h2 className="text-[11px] font-bold uppercase tracking-[0.2em] text-slate-300">Sync audit trail</h2><p className="mt-1 text-[10px] text-slate-500">Last 5 days · source runs, counts, timing, and outcome.</p></div></div>
           {auditRecords.length > 0 && <div className="mb-4 grid grid-cols-2 gap-2 sm:grid-cols-4"><div className="rounded-xl border border-white/10 bg-white/[0.03] p-3"><p className="text-[10px] uppercase tracking-[0.12em] text-slate-500">Runs</p><p className="mt-1 text-lg font-semibold text-white">{auditRecords.length}</p></div><div className="rounded-xl border border-emerald-300/15 bg-emerald-300/[0.05] p-3"><p className="text-[10px] uppercase tracking-[0.12em] text-slate-500">Succeeded</p><p className="mt-1 text-lg font-semibold text-emerald-200">{auditRecords.filter((record) => record.status === 'SUCCEEDED').length}</p></div><div className="rounded-xl border border-rose-300/15 bg-rose-300/[0.05] p-3"><p className="text-[10px] uppercase tracking-[0.12em] text-slate-500">Failed</p><p className="mt-1 text-lg font-semibold text-rose-200">{auditRecords.filter((record) => record.status === 'FAILED').length}</p></div><div className="rounded-xl border border-cyan-300/15 bg-cyan-300/[0.05] p-3"><p className="text-[10px] uppercase tracking-[0.12em] text-slate-500">Rows synced</p><p className="mt-1 text-lg font-semibold text-cyan-200">{auditRecords.reduce((sum, record) => sum + record.rowCount, 0)}</p></div></div>}
           {auditError && <div className="mb-3 rounded-xl border border-rose-300/20 bg-rose-300/10 px-3 py-2 text-xs text-rose-100">{auditError}</div>}
-          {auditLoading ? <div className="flex items-center gap-2 rounded-xl border border-white/10 bg-white/[0.03] px-3 py-4 text-xs text-slate-400"><LoaderCircle size={14} className="animate-spin" /> Loading audit records...</div> : auditRecords.length === 0 && !auditError ? <div className="rounded-xl border border-white/10 bg-white/[0.03] px-3 py-4 text-xs text-slate-500">No sync audit records in the last 5 days.</div> : auditRecords.length > 0 ? <div className="overflow-x-auto rounded-xl border border-white/10"><table className="min-w-[1040px] w-full text-left text-[11px]"><thead className="bg-white/[0.05] text-[10px] uppercase tracking-[0.12em] text-slate-500"><tr><th className="px-3 py-3">Completed</th><th className="px-3 py-3">Source</th><th className="px-3 py-3">Reference</th><th className="px-3 py-3">Domain</th><th className="px-3 py-3">Rows</th><th className="px-3 py-3">Nodes</th><th className="px-3 py-3">Edges</th><th className="px-3 py-3">Duration</th><th className="px-3 py-3">Status</th><th className="px-3 py-3">Details</th></tr></thead><tbody className="divide-y divide-white/10">{auditRecords.map((record) => <tr key={record.id} className="text-slate-300"><td className="whitespace-nowrap px-3 py-3 text-slate-500">{new Date(record.completedAt).toLocaleString()}</td><td className="px-3 py-3 font-semibold text-cyan-200">{record.sourceType}</td><td className="max-w-[230px] truncate px-3 py-3" title={record.sourceReference}>{record.tableName ?? record.fileName ?? record.sourceReference}</td><td className="px-3 py-3">{record.domain}</td><td className="px-3 py-3 font-mono">{record.rowCount}</td><td className="px-3 py-3 font-mono">{record.nodeCount}</td><td className="px-3 py-3 font-mono">{record.edgeCount}</td><td className="px-3 py-3 font-mono text-slate-500">{Math.max(0, new Date(record.completedAt).getTime() - new Date(record.startedAt).getTime()) < 1000 ? `${Math.max(0, new Date(record.completedAt).getTime() - new Date(record.startedAt).getTime())}ms` : `${(Math.max(0, new Date(record.completedAt).getTime() - new Date(record.startedAt).getTime()) / 1000).toFixed(1)}s`}</td><td className="px-3 py-3"><span className={`rounded-full px-2 py-1 text-[9px] font-bold ${record.status === 'SUCCEEDED' ? 'bg-emerald-300/10 text-emerald-200' : 'bg-rose-300/10 text-rose-200'}`}>{record.status}</span></td><td className="max-w-[260px] truncate px-3 py-3 text-slate-500" title={record.errorMessage ?? `${record.entityLabel ?? 'Sync'} completed`}>{record.errorMessage ?? `${record.entityLabel ?? 'Sync'} completed`}</td></tr>)}</tbody></table></div> : null}
+          {auditLoading ? <div className="flex items-center gap-2 rounded-xl border border-white/10 bg-white/[0.03] px-3 py-4 text-xs text-slate-400"><LoaderCircle size={14} className="animate-spin" /> Loading audit records...</div> : auditRecords.length === 0 && !auditError ? <div className="rounded-xl border border-white/10 bg-white/[0.03] px-3 py-4 text-xs text-slate-500">No sync audit records in the last 5 days.</div> : auditRecords.length > 0 ? <div className="overflow-x-auto rounded-xl border border-white/10"><table className="min-w-[1040px] w-full text-left text-[11px]"><thead className="bg-white/[0.05] text-[10px] uppercase tracking-[0.12em] text-slate-500"><tr><th className="px-3 py-3">Completed</th><th className="px-3 py-3">Source</th><th className="px-3 py-3">Reference</th><th className="px-3 py-3">Rows</th><th className="px-3 py-3">Nodes</th><th className="px-3 py-3">Edges</th><th className="px-3 py-3">Duration</th><th className="px-3 py-3">Status</th><th className="px-3 py-3">Details</th></tr></thead><tbody className="divide-y divide-white/10">{auditRecords.map((record) => <tr key={record.id} className="text-slate-300"><td className="whitespace-nowrap px-3 py-3 text-slate-500">{new Date(record.completedAt).toLocaleString()}</td><td className="px-3 py-3 font-semibold text-cyan-200">{record.sourceType}</td><td className="max-w-[230px] truncate px-3 py-3" title={record.sourceReference}>{record.tableName ?? record.fileName ?? record.sourceReference}</td><td className="px-3 py-3 font-mono">{record.rowCount}</td><td className="px-3 py-3 font-mono">{record.nodeCount}</td><td className="px-3 py-3 font-mono">{record.edgeCount}</td><td className="px-3 py-3 font-mono text-slate-500">{Math.max(0, new Date(record.completedAt).getTime() - new Date(record.startedAt).getTime()) < 1000 ? `${Math.max(0, new Date(record.completedAt).getTime() - new Date(record.startedAt).getTime())}ms` : `${(Math.max(0, new Date(record.completedAt).getTime() - new Date(record.startedAt).getTime()) / 1000).toFixed(1)}s`}</td><td className="px-3 py-3"><span className={`rounded-full px-2 py-1 text-[9px] font-bold ${record.status === 'SUCCEEDED' ? 'bg-emerald-300/10 text-emerald-200' : 'bg-rose-300/10 text-rose-200'}`}>{record.status}</span></td><td className="max-w-[260px] truncate px-3 py-3 text-slate-500" title={record.errorMessage ?? `${record.entityLabel ?? 'Sync'} completed`}>{record.errorMessage ?? `${record.entityLabel ?? 'Sync'} completed`}</td></tr>)}</tbody></table></div> : null}
         </div>
         <div className={hubTab === 'sme' ? 'hidden' : ''}>
           <div className="mb-4 flex items-center gap-2">
             <Upload size={15} className="text-cyan-300" />
             <h2 className="text-[11px] font-bold uppercase tracking-[0.2em] text-slate-300">Source sync</h2>
           </div>
-          <div className="mb-4 inline-flex rounded-full border border-cyan-300/25 bg-cyan-300/10 px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.12em] text-cyan-200">[Target Domain: {domain}]</div>
           {redactedCount !== null && <div className="mb-4"><PrivacyShieldBadge redactedCount={redactedCount} /></div>}
           {driftResult && <div className="mb-4"><SchemaDriftBanner result={driftResult} onDismiss={() => setDriftResult(null)} /></div>}
           <div className={hubTab === 'files' ? '' : 'hidden'}>
@@ -396,9 +423,26 @@ export function IngestionPanel({ onRefresh, id, domain, graphNodes = [], entityL
               </div>
             </div>
           </div>
-          <button type="button" className={`${buttonClass} mt-2 border border-white/10 text-slate-300 hover:bg-white/5 ${hubTab === 'warehouses' ? '' : 'hidden'}`} disabled={Boolean(busy)} onClick={() => setNotice('CRM sync endpoint is ready for the next connector configuration.')}>
-            <RefreshCw size={14} /> Sync CRM <ArrowUpRight size={13} className="ml-auto text-slate-500" />
-          </button>
+          <div className={`mt-2 ${hubTab === 'business' ? '' : 'hidden'}`}>
+            <div className="mb-4 flex flex-wrap items-center justify-between gap-3"><div className="flex items-center gap-2"><Database size={15} className="text-emerald-300" /><div><h2 className="text-[11px] font-bold uppercase tracking-[0.2em] text-slate-300">CRM &amp; ERP connections</h2><p className="mt-1 text-[10px] text-slate-500">Sync uses the active saved configuration.</p></div></div><button type="button" onClick={() => { setHubOpen(false); onConfigureDataSources(); }} className="rounded-md border border-cyan-300/25 px-2.5 py-1.5 text-[10px] font-bold text-cyan-200 hover:bg-cyan-300/10">Configure connections</button></div>
+            <div className="grid gap-3 sm:grid-cols-2">
+              {([
+                ['hubspot', 'HubSpot', 'CRM contacts, companies, deals'],
+                ['monday', 'monday.com', 'Items from a configured board'],
+                ['salesforce', 'Salesforce', 'Records from a configured object'],
+                ['odoo', 'Odoo', 'Records from a configured model']
+              ] as const).map(([source, label, detail]) => {
+                const status = businessSyncStatus[source];
+                return <div key={source} className="rounded-xl border border-white/10 bg-white/[0.03] p-3">
+                  <p className="text-xs font-semibold text-slate-100">{label}</p><p className="mt-1 text-[10px] text-slate-500">{detail}</p>
+                  <button type="button" disabled={Boolean(busy) || status.state === 'syncing'} onClick={() => void syncBusinessSource(source)} className={`${buttonClass} mt-3 border border-white/10 text-slate-200 hover:bg-white/5`}>
+                    {status.state === 'syncing' ? <LoaderCircle size={14} className="animate-spin" /> : <RefreshCw size={14} />} Sync {label} <ArrowUpRight size={13} className="ml-auto text-slate-500" />
+                  </button>
+                  {status.message && <p className={`mt-2 text-[10px] leading-4 ${status.state === 'error' ? 'text-rose-300' : status.state === 'success' ? 'text-emerald-300' : 'text-slate-400'}`} role={status.state === 'error' ? 'alert' : 'status'}>{status.message}</p>}
+                </div>;
+              })}
+            </div>
+          </div>
           <div className={`mt-5 border-t border-white/10 pt-5 ${hubTab === 'files' ? '' : 'hidden'}`}>
             <div className="mb-3 flex items-center justify-between gap-3">
               <div><p className="text-xs font-semibold text-slate-300">Schema drift check</p><p className="mt-1 text-[10px] leading-4 text-slate-500">Compare a source sample with an existing entity type.</p></div>

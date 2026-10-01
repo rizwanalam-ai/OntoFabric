@@ -266,9 +266,42 @@ export const persistGraphToNeo4j = async (nodes: GraphNode[], edges: GraphEdge[]
   } finally {
     await session.close();
   }
+  await linkMatchingProducts(nodes.map((node) => node.id));
 };
 
-export const queryGraphAtTimestamp = async (asOfDate: string, domain?: DomainContext): Promise<{ nodes: unknown[]; edges: unknown[] }> => {
+export const linkMatchingProducts = async (nodeIds: string[]): Promise<void> => {
+  if (nodeIds.length === 0) return;
+  const session = getNeo4jDriver().session();
+  try {
+    await session.executeWrite((transaction) => transaction.run(
+      `UNWIND $nodeIds AS nodeId
+       MATCH (a:Entity {id: nodeId})
+       WHERE toLower(coalesce(a.typeLabel, '')) = 'product'
+       UNWIND ['productId', 'sku'] AS key
+       WITH a, key, toLower(trim(toString(a[key]))) AS productKey
+       WHERE productKey <> ''
+       MATCH (b:Entity)
+       WHERE b.id <> a.id
+         AND toLower(coalesce(b.typeLabel, '')) = 'product'
+         AND b.domain <> a.domain
+         AND toLower(trim(toString(b[key]))) = productKey
+       WITH CASE WHEN a.id < b.id THEN a ELSE b END AS source,
+            CASE WHEN a.id < b.id THEN b ELSE a END AS target, key
+       MERGE (source)-[r:SAME_AS {id: 'SAME_AS:' + source.id + '|' + target.id}]->(target)
+       SET r.relationship = 'SAME_AS', r.matchedBy = key, r.confidence = 1.0,
+           r.validFrom = coalesce(r.validFrom, source.validFrom, datetime().toString()),
+           r.validTo = coalesce(r.validTo, source.validTo, '9999-12-31T23:59:59.999Z'),
+           r.transactionFrom = coalesce(r.transactionFrom, source.transactionFrom, datetime().toString()),
+           r.transactionTo = coalesce(r.transactionTo, source.transactionTo, '9999-12-31T23:59:59.999Z')
+       RETURN count(r)`,
+      { nodeIds }
+    ));
+  } finally {
+    await session.close();
+  }
+};
+
+export const queryGraphAtTimestamp = async (asOfDate: string): Promise<{ nodes: unknown[]; edges: unknown[] }> => {
   const session = getNeo4jDriver().session();
 
   try {
@@ -289,9 +322,8 @@ export const queryGraphAtTimestamp = async (asOfDate: string, domain?: DomainCon
          AND coalesce(r.transactionFrom, '1970-01-01T00:00:00.000Z') <= $asOfDate
          AND coalesce(r.transactionTo, '9999-12-31T23:59:59.999Z') > $asOfDate
        ))
-       AND ($domain IS NULL OR n.domain = $domain OR m.domain = $domain)
        RETURN n, r, m LIMIT 200`,
-      { asOfDate, domain: domain ?? null }
+      { asOfDate }
     ));
     const nodes = new Map<string, unknown>();
     const edges: unknown[] = [];
@@ -362,6 +394,6 @@ export const closeOntologyServices = async (): Promise<void> => {
   }
 };
 
-export const queryGraphFromNeo4j = (domain?: DomainContext): Promise<{ nodes: unknown[]; edges: unknown[] }> => (
-  queryGraphAtTimestamp(new Date().toISOString(), domain)
+export const queryGraphFromNeo4j = (): Promise<{ nodes: unknown[]; edges: unknown[] }> => (
+  queryGraphAtTimestamp(new Date().toISOString())
 );

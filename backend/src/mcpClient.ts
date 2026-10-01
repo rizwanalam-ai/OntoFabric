@@ -61,13 +61,6 @@ export const callExcelParser = (filePath: string) => callTool<unknown>('parse_ex
 
 export const callPdfParser = (filePath: string) => callTool<unknown>('parse_pdf_source', { filePath });
 
-export const callErpRecords = (entityType: string, filterCriteria?: string) => callTool<unknown>(
-  'fetch_erp_records',
-  filterCriteria ? { entityType, filterCriteria } : { entityType }
-);
-
-export const callCrmContacts = (accountId: string) => callTool<unknown>('fetch_crm_contacts', { accountId });
-
 export const callSapPurchaseOrderUpdate = (orderId: string, updatedFields: Record<string, unknown>) => callTool<unknown>(
   'update_sap_purchase_order',
   { orderId, updatedFields }

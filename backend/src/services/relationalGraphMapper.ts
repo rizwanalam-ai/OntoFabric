@@ -1,6 +1,6 @@
 import type { ForeignKeyMapping, RelationalSyncRequest } from '@ontofabric/shared/types.js';
 import { DEFAULT_TEMPORAL_END } from '@ontofabric/shared/types.js';
-import { getNeo4jDriver } from './ontologyService.js';
+import { getNeo4jDriver, linkMatchingProducts } from './ontologyService.js';
 
 const safeLabel = (value: string, name: string): string => {
   const label = value.trim();
@@ -61,7 +61,7 @@ export const syncRelationalTableToNeo4j = async (
   const session = getNeo4jDriver().session();
   const sanitizedRecords = sanitizeRecordsForNeo4j(records);
   try {
-    return await session.executeWrite(async (transaction) => {
+    const result = await session.executeWrite(async (transaction) => {
       const nodeResult = await transaction.run(nodeCypher, {
         batch: sanitizedRecords,
         pk: primaryKeyColumn,
@@ -102,6 +102,8 @@ export const syncRelationalTableToNeo4j = async (
 
       return { nodeCount, relationshipCounts };
     });
+    await linkMatchingProducts(sanitizedRecords.map((record) => String(record[primaryKeyColumn])));
+    return result;
   } finally {
     await session.close();
   }

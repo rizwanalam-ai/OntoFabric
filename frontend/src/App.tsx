@@ -1,11 +1,10 @@
 import { useEffect, useState } from 'react';
 import axios from 'axios';
-import { ChevronLeft, ChevronRight, ClipboardCheck, Factory, Network, PencilRuler, Search, Settings2, Sparkles } from 'lucide-react';
+import { ChevronLeft, ChevronRight, ClipboardCheck, Database, Factory, Network, PencilRuler, Search, Settings2, Sparkles } from 'lucide-react';
 import { api } from './api';
 
-import type { DomainContext, GraphEdge, GraphNode, Primitive } from '@ontofabric/shared/types.js';
+import type { GraphEdge, GraphNode, Primitive } from '@ontofabric/shared/types.js';
 import { ActionExecutionModal } from './components/ActionExecutionModal';
-import { DomainSelector } from './components/DomainSelector';
 import { GraphExplorer } from './components/GraphExplorer';
 import { GraphChatAssistant } from './components/GraphChatAssistant';
 import { IngestionPanel } from './components/IngestionPanel';
@@ -15,9 +14,10 @@ import { SMEMatchQueue, type PendingMatch } from './components/SMEMatchQueue';
 import { SopPlanningPanel } from './components/SopPlanningPanel';
 import { SchemaDesigner } from './components/SchemaDesigner';
 import { AiSettingsModal } from './components/AiSettingsModal';
+import { DataSourcesAdmin } from './components/DataSourcesAdmin';
 
 type GraphPayload = { nodes: GraphNode[]; edges: GraphEdge[] };
-type WorkspaceView = 'explorer' | 'approvals' | 'cockpit' | 'designer';
+type WorkspaceView = 'explorer' | 'approvals' | 'cockpit' | 'designer' | 'data-sources';
 
 export default function App() {
   const [graph, setGraph] = useState<GraphPayload>({ nodes: [], edges: [] });
@@ -31,15 +31,14 @@ export default function App() {
   const [isSourceSyncOpen, setIsSourceSyncOpen] = useState(true);
   const [isAssistantOpen, setIsAssistantOpen] = useState(true);
   const [activeView, setActiveView] = useState<WorkspaceView>('explorer');
-  const [selectedDomain, setSelectedDomain] = useState<DomainContext>('SUPPLY_CHAIN');
   const [quickAction, setQuickAction] = useState<'entity' | 'relationship' | null>(null);
   const [isAiSettingsOpen, setIsAiSettingsOpen] = useState(false);
-  const refreshGraph = async (domain: DomainContext = selectedDomain) => {
+  const refreshGraph = async () => {
     try {
       setLoading(true);
       const [{ data: ontologyGraph }, { data: sopGraph }] = await Promise.all([
-        api.get<GraphPayload>('/api/ontology/graph', { params: { domain } }),
-        domain === 'SUPPLY_CHAIN' ? api.get<GraphPayload>('/api/sop/graph') : Promise.resolve({ data: { nodes: [], edges: [] } })
+        api.get<GraphPayload>('/api/ontology/graph'),
+        api.get<GraphPayload>('/api/sop/graph')
       ]);
       const mergedNodes = new Map(sopGraph.nodes.map((node) => [node.id, node]));
       ontologyGraph.nodes.forEach((node) => mergedNodes.set(node.id, node));
@@ -56,10 +55,10 @@ export default function App() {
 
   useEffect(() => {
     void refreshGraph();
-    void api.get<{ matches: PendingMatch[] }>('/api/resolution/pending', { params: { domain: selectedDomain } })
+    void api.get<{ matches: PendingMatch[] }>('/api/resolution/pending')
       .then(({ data }) => setPendingMatches(data.matches))
       .catch(() => setPendingMatches([]));
-  }, [selectedDomain]);
+  }, []);
 
   const removePendingMatch = async (pendingId: string) => {
     setPendingMatches((matches) => matches.filter((match) => match.pendingId !== pendingId));
@@ -86,7 +85,6 @@ export default function App() {
         </div>
         <nav className="flex items-center gap-2 text-xs text-slate-400">
           <button type="button" aria-label="Search workspace" className="hidden rounded-xl p-2.5 transition hover:bg-white/10 hover:text-white sm:block"><Search size={17} /></button>
-          <DomainSelector domain={selectedDomain} onDomainChange={setSelectedDomain} />
           <button type="button" aria-label="Workspace settings" onClick={() => setIsAiSettingsOpen(true)} className="rounded-xl p-2.5 transition hover:bg-white/10 hover:text-white"><Settings2 size={17} /></button>
         </nav>
       </header>
@@ -96,13 +94,14 @@ export default function App() {
             { id: 'explorer', label: 'Explorer', icon: Network },
             { id: 'designer', label: 'Schema Designer', icon: PencilRuler },
             { id: 'approvals', label: 'Approvals', icon: ClipboardCheck },
-            { id: 'cockpit', label: 'S&OP Cockpit', icon: Factory }
+            { id: 'cockpit', label: 'S&OP Cockpit', icon: Factory },
+            { id: 'data-sources', label: 'Data Sources', icon: Database }
           ].map(({ id, label, icon: Icon }) => <button key={id} type="button" role="tab" aria-selected={activeView === id} onClick={() => setActiveView(id as WorkspaceView)} className={`flex items-center gap-2 border-b-2 px-3 py-3 text-xs font-semibold transition ${activeView === id ? 'border-cyan-300 text-cyan-200' : 'border-transparent text-slate-400 hover:border-white/30 hover:text-slate-200'}`}><Icon size={14} />{label}</button>)}
         </div>
       </nav>
       <div className="flex min-h-[calc(100vh-112px)] flex-col lg:flex-row">
         {activeView === 'explorer' ? <>
-          {isSourceSyncOpen && <IngestionPanel id="source-sync-panel" domain={selectedDomain} onRefresh={() => refreshGraph(selectedDomain)} graphNodes={graph.nodes} entityLabels={entityLabels} relationshipNames={relationshipNames} quickAction={quickAction} onQuickActionHandled={() => setQuickAction(null)} />}
+          {isSourceSyncOpen && <IngestionPanel id="source-sync-panel" onRefresh={refreshGraph} onConfigureDataSources={() => setActiveView('data-sources')} graphNodes={graph.nodes} entityLabels={entityLabels} relationshipNames={relationshipNames} quickAction={quickAction} onQuickActionHandled={() => setQuickAction(null)} />}
           <section className="flex min-h-[650px] min-w-0 flex-1 flex-col gap-3 p-3 md:p-4">
           <div className="flex flex-wrap items-end justify-between gap-3">
             <div>
@@ -126,11 +125,11 @@ export default function App() {
               onCreateEntity={() => setQuickAction('entity')}
               onAddRelationship={() => setQuickAction('relationship')}
             />
-            {isAssistantOpen && <GraphChatAssistant id="graph-assistant-panel" domain={selectedDomain} onHighlightNodes={setHighlightedNodeIds} />}
+            {isAssistantOpen && <GraphChatAssistant id="graph-assistant-panel" onHighlightNodes={setHighlightedNodeIds} />}
           </div>
           </section>
-        </> : activeView === 'designer' ? <SchemaDesigner key={selectedDomain} domain={selectedDomain} /> : <section className="flex min-w-0 flex-1 flex-col gap-4 p-4 md:p-6">
-          {activeView === 'approvals' ? <SMEMatchQueue domain={selectedDomain} matches={pendingMatches} onResolved={removePendingMatch} /> : <SopPlanningPanel domain={selectedDomain} refreshKey={graph.nodes.length + graph.edges.length} />}
+        </> : activeView === 'designer' ? <SchemaDesigner /> : activeView === 'data-sources' ? <DataSourcesAdmin /> : <section className="flex min-w-0 flex-1 flex-col gap-4 p-4 md:p-6">
+          {activeView === 'approvals' ? <SMEMatchQueue matches={pendingMatches} onResolved={removePendingMatch} /> : <SopPlanningPanel refreshKey={graph.nodes.length + graph.edges.length} />}
         </section>}
       </div>
       <NodeDetailDrawer node={selectedNode} edges={graph.edges} onClose={() => setSelectedNode(null)} onViewLineage={(node) => setLineageNode(node)} onEditProperties={(node, changedFields) => setPendingAction({ node, changedFields })} />

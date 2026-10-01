@@ -31,7 +31,7 @@ Excel / PDF / ERP / CRM / SME input
 | --- | --- |
 | `frontend` | React/Vite workspace, graph explorer, visual schema designer, source sync, approvals, and S&OP views |
 | `backend` | Express API, Neo4j persistence, ontology extraction, graph queries, and entity resolution |
-| `mcp-server` | Official MCP TypeScript SDK server for source parsing and mock ERP/CRM retrieval |
+| `mcp-server` | Official MCP TypeScript SDK server for source parsing |
 | `shared` | Shared graph, ontology, temporal, S&OP, and primitive-property contracts |
 
 ## Prerequisites
@@ -88,25 +88,13 @@ DEEPSEEK_API_KEY=your_deepseek_key
 
 Embeddings use OpenAI by default because Gemini and DeepSeek chat endpoints do not provide the same embedding capability. Configure a separate embedding provider/model when needed with `AI_EMBEDDING_PROVIDER`, `AI_EMBEDDING_MODEL`, and that provider's API key. The active and configured providers are available from `GET /api/ai/providers`.
 
-### SAP sandbox configuration
+### Business source configuration
 
-The Source Sync sidebar includes **Sync SAP sandbox**. Configure the backend with the SAP Business Accelerator Hub API you want to test:
+Configure SAP, PostgreSQL, Snowflake, HubSpot, monday.com, Salesforce, and Odoo from the **Data Sources** workspace page. Credentials are encrypted in `backend/data/ontofabric_config.db`; these connectors require an active saved connection and do not read their credentials from `.env`. From **Explorer > Add Data Source > CRM & ERP**, sync HubSpot, monday.com, Salesforce, or Odoo. SAP sync remains under Files and APIs.
 
-```env
-SAP_API_BASE_URL=https://your-sandbox-api.example.com
-SAP_API_PATH=/path/to/odata/entity-set
-SAP_API_KEY=your_sap_api_key
-# Alternatively, use a bearer token instead of SAP_API_KEY:
-# SAP_API_TOKEN=your_bearer_token
-# For SAP NetWeaver sandbox endpoints that require Basic authentication:
-# SAP_USERNAME=your_sap_username
-# SAP_PASSWORD=your_sap_password
-SAP_ENTITY_TYPE=BusinessPartner
-```
+Use an SAP Business Accelerator Hub endpoint, a HubSpot private-app access token, a monday.com API token and board ID, a Salesforce OAuth access token with instance URL/object API name, or an Odoo URL/database/user/API key/model. Connector accounts should be restricted to read-only permissions needed for the selected object/model.
 
-The connector sends `Accept: application/json`, uses the `apikey` header when `SAP_API_KEY` is set, uses an `Authorization: Bearer` header when `SAP_API_TOKEN` is set, and uses Basic authentication when both `SAP_USERNAME` and `SAP_PASSWORD` are set. Basic authentication takes precedence over bearer authentication. It accepts either a plain JSON array or an OData response with a `value` array. Primitive fields are stored as ERP graph node properties with SAP provenance metadata.
-
-The exact base URL and path depend on the API selected in SAP Business Accelerator Hub. The API key or token must remain in the backend environment and must never be placed in frontend variables.
+Provider endpoints are fetched server-side. SAP supports API key, bearer, and Basic authentication. HubSpot uses the CRM objects API, monday.com reads items from the selected board, Salesforce reads the configured object using its REST query endpoint, and Odoo uses JSON-RPC `authenticate` and `search_read` calls.
 
 If the backend reports `SAP TLS certificate is not trusted by Node`, configure the issuing CA certificate before starting Node:
 
@@ -121,20 +109,7 @@ Do not disable TLS verification with `NODE_TLS_REJECT_UNAUTHORIZED=0` in normal 
 
 ### Databricks sync configuration
 
-The Data Mesh connector syncs a Databricks SQL warehouse table into Neo4j. Configure these variables in the backend environment only:
-
-```env
-DATABRICKS_SERVER_HOSTNAME=your-workspace.cloud.databricks.com
-DATABRICKS_HTTP_PATH=/sql/1.0/warehouses/your-warehouse-id
-DATABRICKS_TOKEN=your_databricks_pat
-# Optional when the HTTP path does not contain the warehouse ID:
-# DATABRICKS_WAREHOUSE_ID=your-warehouse-id
-# Default catalog/schema for an unqualified table name:
-DATABRICKS_CATALOG=samples
-DATABRICKS_SCHEMA=tpch
-```
-
-Open **Add Data Source**, select **Databases**, enter a table name, primary-key column, and entity label under **Databricks**, then select **Sync Databricks**. For the Databricks sample customer table shown in Catalog Explorer, use `samples.tpch.customer` and primary key `c_custkey`. An unqualified name such as `customer` uses `DATABRICKS_CATALOG` and `DATABRICKS_SCHEMA`. The backend reads up to 10,000 rows through the Databricks SQL Statement Execution API and maps them to domain-scoped `Entity` nodes.
+Add a Databricks connection in **Data Sources** with workspace hostname, SQL warehouse HTTP path, token, and optional default catalog/schema. Then open **Add Data Source > Cloud Warehouses**, enter a table name, primary-key column, and entity label, and select **Sync Databricks**. For the Databricks sample customer table shown in Catalog Explorer, use `samples.tpch.customer` and primary key `c_custkey`. An unqualified name uses the saved default catalog and schema. The backend reads up to 10,000 rows through the Databricks SQL Statement Execution API.
 
 ## Run Locally
 
@@ -151,21 +126,6 @@ Initialize Neo4j indexes and constraints:
 ```bash
 npm run db:init --workspace @ontofabric/backend
 ```
-
-Seed the example S&OP graph and planning data:
-
-```bash
-npm run db:seed:sop --workspace @ontofabric/backend
-npm run db:seed:planning --workspace @ontofabric/backend
-```
-
-Seed the complete scenario test dataset:
-
-```bash
-npm run db:seed:scenarios --workspace @ontofabric/backend
-```
-
-The scenario seed is repeatable and uses `TEST-*` IDs. It creates a supply-shortage path, near-duplicate customer records with a pending approval, planner-entered supplier data, historical graph records, and a PDF-originated contract linked to planning data.
 
 Start the backend:
 
@@ -205,7 +165,7 @@ Available graph interactions include:
 - Node context menu access to provenance and lineage.
 - Fullscreen graph mode.
 
-The graph is loaded from `GET /api/sop/graph`, which returns the seeded S&OP graph used by the workspace.
+The graph is loaded from `GET /api/ontology/graph` and, for the supply-chain domain, `GET /api/sop/graph`. Both endpoints return only records already present in the database.
 
 ### 2. Sync a source file
 
@@ -376,9 +336,38 @@ All backend routes are served from `http://localhost:3001`.
 | `GET` | `/api/sop/graph` | Load the S&OP graph |
 | `GET` | `/api/sop/summary` | Load demand, inventory, supplier, and capacity data |
 | `POST` | `/api/sync/databricks` | Sync a Databricks SQL warehouse table into the ontology graph |
+| `POST` | `/api/integrations/hubspot/sync` | Sync the configured HubSpot object into the graph |
+| `POST` | `/api/integrations/monday/sync` | Sync items from the configured monday.com board |
+| `POST` | `/api/integrations/salesforce/sync` | Sync the configured Salesforce object |
+| `POST` | `/api/integrations/odoo/sync` | Sync the configured Odoo model |
 | `GET` | `/api/audit/syncs?days=5` | Load recent source-sync audit records with counts, status, timing, and errors |
+| `GET` | `/api/relationships/auto-linked-stats` | Count app-generated relationships grouped by source and relationship type |
+
+### Cross-source relationship linking
+
+Set `CROSS_SOURCE_LINKS` in the backend environment to a JSON array of mappings. A mapping runs after records with the configured source label are ingested. Node labels and relationship types must be valid Cypher identifiers; key-property names are parameterized.
+
+```env
+CROSS_SOURCE_LINKS=[{"sourceNodeLabel":"PurchaseOrder","sourceKeyProperty":"vendor_sap_id","targetNodeLabel":"Supplier","targetKeyProperty":"id","relationshipType":"ISSUED_BY","sourceName":"POSTGRES_TO_SAP_LINKER"}]
+```
+
+The source node is found by its ingested `id`; its configured foreign-reference property is matched against the configured target node property. Created relationships are marked with `establishedByApp`, `linkedFromSource`, and `relationshipType`. The stats endpoint returns a `stats` array containing `linkedFromSource`, `relationshipType`, and `count` values.
 
 Requests are validated with Zod schemas. Invalid input returns a client error with validation details. Backend failures are returned with an error message and an appropriate service status.
+
+## Data Source Administration
+
+Open **Data Sources** in the workspace to add and manage SAP, PostgreSQL, Snowflake, Databricks, HubSpot, monday.com, Salesforce, and Odoo connections. The backend stores connection records in `backend/data/ontofabric_config.db`; credentials are encrypted with AES-256-GCM before they are written to SQLite. The browser never receives saved secret values. Leave a secret field blank when editing to retain its current value.
+
+Set a persistent 32-byte encryption key in the backend environment before saving configurations. For example, generate a hex-encoded key with:
+
+```powershell
+node -e "console.log(require('node:crypto').randomBytes(32).toString('hex'))"
+```
+
+Set the generated value as `CONFIG_ENCRYPTION_KEY` in the backend environment. Also set a separate, high-entropy `DATA_SOURCE_ADMIN_KEY`; the Data Sources page prompts for this key and holds it only in memory while open. Back up the encryption key securely: losing or changing it makes saved credentials unreadable. Do not commit either key or store them in frontend environment variables. These eight source types use active saved SQLite configurations; their connection credentials are not read from `.env`. Only one saved connection per source type can be active.
+
+The admin API is available at `GET/POST /api/admin/data-sources` and `PUT/PATCH/DELETE /api/admin/data-sources/:id`; it requires `DATA_SOURCE_ADMIN_KEY` in the `x-admin-key` header. Put the app behind HTTPS and a trusted authentication layer before exposing it outside a local development environment.
 
 ## MCP Tools
 
@@ -388,10 +377,7 @@ The MCP server uses the official TypeScript SDK and exposes these tools over std
 | --- | --- |
 | `parse_excel_source` | Read every worksheet and return structured row objects |
 | `parse_pdf_source` | Extract text and page count from a PDF |
-| `fetch_erp_records` | Return mock ERP customer or order records with optional filtering |
-| `fetch_crm_contacts` | Return mock CRM contacts for an account ID |
-
-The backend uses the file parsing tools through its MCP client. ERP and CRM tools provide a source-system integration shape that can later be replaced with live connectors.
+The backend uses the file parsing tools through its MCP client. Graph records are created only from data you ingest or enter.
 
 ## Data and Governance Features
 
@@ -402,72 +388,9 @@ The backend uses the file parsing tools through its MCP client. ERP and CRM tool
 - Neo4j indexes and constraints are initialized by the backend database script.
 - Pending entity reviews are stored separately with unique pending IDs and status indexing.
 
-## Practical Scenarios
+## Start With An Empty Graph
 
-### Scenario 1: Investigate a supply shortage
-
-**Goal:** determine why a product may miss future demand.
-
-1. Seed or ingest product, component, inventory, supplier, and demand data.
-2. Open **S&OP Cockpit** and inspect inventory alerts.
-3. Review the affected facility and reorder point.
-4. Switch to **Explorer** and use Dagre layout.
-5. Trace `FOR_PRODUCT`, `STORED_AT`, `SUPPLIED_BY`, and `HAS_DEMAND` relationships.
-6. Ask the Graph Assistant which products have insufficient inventory and which suppliers support their components.
-7. Use the minimap and Center control to navigate a larger graph.
-
-Seeded focus: `TEST-PUMP-100` has 180 units on hand against a 500-unit safety stock and 700-unit reorder point. Its seal supplier has a 42-day lead time.
-
-### Scenario 2: Consolidate duplicate customer records
-
-**Goal:** clean up records from multiple source systems.
-
-1. Ingest CRM and ERP records or load the provided mock source data.
-2. Open **Approvals**.
-3. Review a candidate pair and compare conflicting fields.
-4. Approve a merge if the records represent one customer.
-5. Link the records if they are related aliases that should remain distinct.
-6. Reject false positives.
-7. Return to **Explorer** to inspect the canonical graph.
-
-Seeded focus: compare `TEST-CUSTOMER-ACME` and `TEST-CUSTOMER-ACME-DUP`, then resolve `TEST-DUP-ACME-001`.
-
-### Scenario 3: Add planner knowledge without changing an upstream system
-
-**Goal:** record a planner-maintained supplier or relationship.
-
-1. Open **Explorer** and expand **Source Sync / SME Input**.
-2. Select `Supplier` as the entity label.
-3. Add typed properties such as `name`, `country`, and `leadTimeDays`.
-4. Create the entity.
-5. Add a relationship from a component to the supplier using `SUPPLIED_BY`.
-6. Refresh the graph and verify the new node and edge.
-
-Seeded focus: `TEST-PLANNER-SUPPLIER` is recorded as `SME_INPUT` and is linked to `TEST-SEAL-01` with a 14-day lead time.
-
-### Scenario 4: Analyze a historical graph state
-
-**Goal:** understand what the ontology looked like at a prior point in time.
-
-1. Call `GET /api/ontology/graph?asOfTimestamp=<ISO timestamp>`.
-2. Compare the returned graph with the current `/api/ontology/graph` response.
-3. Use the node provenance and temporal fields to explain when data became valid and when it was recorded.
-4. Use role-appropriate responses when sharing the result with different user roles.
-
-Seeded focus: query before `2026-01-01T00:00:00.000Z` to find `TEST-PUMP-100-HISTORICAL`, then query the current date to find `TEST-PUMP-100`.
-
-### Scenario 5: Combine PDF contracts with planning data
-
-**Goal:** connect contract text with operational planning entities.
-
-1. Enter the contract PDF path in Source Sync.
-2. Select **PDF**.
-3. Let the MCP parser extract text and the ontology service persist the resulting graph.
-4. Search or filter the graph for suppliers, products, or facilities found in the contract.
-5. Add SME links where extraction needs domain clarification.
-6. Review the S&OP Cockpit for planning impact.
-
-Seeded focus: inspect `TEST-CONTRACT-ACME`, which has `PDF` provenance and a safety-stock clause linked to `TEST-PUMP-100`.
+Database initialization creates indexes and constraints only; it does not add graph records. Ingest a source file or create an entity in **Explorer** to add the first nodes. The S&OP Cockpit and Approvals views remain empty until matching graph data exists.
 
 ## Troubleshooting
 
@@ -475,18 +398,12 @@ Seeded focus: inspect `TEST-CONTRACT-ACME`, which has `PDF` provenance and a saf
 
 - Confirm the backend is running on port 3001.
 - Check `GET /health`.
-- Run the database initialization and S&OP seed commands.
+- Run database initialization to create indexes and constraints; ingest or enter graph records separately.
 - Verify Neo4j credentials and database name in `.env`.
 
 ### The S&OP cockpit is empty
 
-Run:
-
-```bash
-npm run db:seed:planning --workspace @ontofabric/backend
-```
-
-Then refresh the browser.
+Ingest products, facilities, demand forecasts, suppliers, and their relationships, then refresh the browser.
 
 ### File ingestion fails
 
@@ -522,6 +439,4 @@ npm run dev --workspace @ontofabric/backend
 
 # Database
 npm run db:init --workspace @ontofabric/backend
-npm run db:seed:sop --workspace @ontofabric/backend
-npm run db:seed:planning --workspace @ontofabric/backend
 ```
