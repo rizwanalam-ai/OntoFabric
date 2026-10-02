@@ -1,5 +1,5 @@
 import { DEFAULT_TEMPORAL_END, type GraphNode, type Primitive, type PrimitiveDictionary } from '@ontofabric/shared/types.js';
-import { getActiveDataSource } from './dataSourceConfigService.js';
+import { getActiveDataSource, saveDataSource } from './dataSourceConfigService.js';
 
 type BusinessSource = 'HUBSPOT' | 'MONDAY' | 'SALESFORCE' | 'ODOO';
 type NormalizedRows = { records: Record<string, unknown>[]; sourceType: 'CRM' | 'ERP'; entityType: string };
@@ -23,9 +23,42 @@ const responseJson = async (response: Response): Promise<Record<string, unknown>
   return body;
 };
 
-const fetchHubSpot = async (config: Record<string, string | number | boolean>): Promise<NormalizedRows> => {
+const getHubSpotAccessToken = async (source: NonNullable<ReturnType<typeof getActiveDataSource>>): Promise<string> => {
+  const config = source.config;
+  const refreshToken = asString(config.refreshToken);
+  if (!refreshToken) return asString(config.accessToken);
+
+  const response = await fetch('https://api.hubapi.com/oauth/v1/token', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({
+      grant_type: 'refresh_token',
+      client_id: asString(config.clientId),
+      client_secret: asString(config.clientSecret),
+      refresh_token: refreshToken
+    })
+  });
+  const body = await responseJson(response);
+  const accessToken = asString(body.access_token);
+  if (!accessToken) throw new Error('HubSpot OAuth refresh returned no access token. Reauthorize the HubSpot app.');
+
+  saveDataSource({
+    id: source.id,
+    name: source.name,
+    type: 'HUBSPOT',
+    isActive: true,
+    config: {
+      accessToken,
+      ...(body.refresh_token ? { refreshToken: asString(body.refresh_token) } : {})
+    }
+  });
+  return accessToken;
+};
+
+const fetchHubSpot = async (source: NonNullable<ReturnType<typeof getActiveDataSource>>): Promise<NormalizedRows> => {
+  const config = source.config;
   const objectType = asString(config.objectType);
-  const token = asString(config.accessToken);
+  const token = await getHubSpotAccessToken(source);
   const baseUrl = asString(config.baseUrl) || 'https://api.hubapi.com';
   const records: Record<string, unknown>[] = [];
   let after = '';
@@ -114,8 +147,7 @@ const fetchOdoo = async (config: Record<string, string | number | boolean>): Pro
   return { records: Array.isArray(result) ? result as Record<string, unknown>[] : [], sourceType: 'ERP', entityType: model };
 };
 
-const providers: Record<BusinessSource, (config: Record<string, string | number | boolean>) => Promise<NormalizedRows>> = {
-  HUBSPOT: fetchHubSpot,
+const providers: Record<Exclude<BusinessSource, 'HUBSPOT'>, (config: Record<string, string | number | boolean>) => Promise<NormalizedRows>> = {
   MONDAY: fetchMonday,
   SALESFORCE: fetchSalesforce,
   ODOO: fetchOdoo
@@ -124,7 +156,9 @@ const providers: Record<BusinessSource, (config: Record<string, string | number 
 export const syncBusinessSource = async (type: BusinessSource): Promise<{ nodes: GraphNode[]; count: number; entityType: string }> => {
   const source = getActiveDataSource(type);
   if (!source) throw new Error(`${type} is not configured. Add and activate a connection in the Data Sources admin page.`);
-  const result = await providers[type](source.config);
+  const result = type === 'HUBSPOT'
+    ? await fetchHubSpot(source)
+    : await providers[type](source.config);
   const timestamp = new Date().toISOString();
   const nodes = result.records.map((record, index): GraphNode => {
     const rawId = asString(record.id ?? record.ID ?? record.Id ?? record._id ?? index + 1);

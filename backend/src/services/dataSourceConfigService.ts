@@ -21,7 +21,7 @@ const secretFields: Record<DataSourceType, string[]> = {
   POSTGRES: ['password'],
   SNOWFLAKE: ['password'],
   DATABRICKS: ['token'],
-  HUBSPOT: ['accessToken'],
+  HUBSPOT: ['accessToken', 'clientSecret', 'refreshToken'],
   MONDAY: ['apiToken'],
   SALESFORCE: ['accessToken'],
   ODOO: ['apiKey']

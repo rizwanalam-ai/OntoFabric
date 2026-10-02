@@ -28,6 +28,15 @@ const sourceSchema = z.object({
       context.addIssue({ code: z.ZodIssueCode.custom, path: ['config', key], message: `${key} is required for ${value.type}.` });
     }
   }
+  if (value.type === 'HUBSPOT') {
+    const oauthFields = ['clientId', 'clientSecret', 'refreshToken'];
+    const configuredFields = oauthFields.filter((key) => String(value.config[key] ?? '').trim());
+    if (configuredFields.length > 0 && configuredFields.length < oauthFields.length) {
+      for (const key of oauthFields.filter((field) => !String(value.config[field] ?? '').trim())) {
+        context.addIssue({ code: z.ZodIssueCode.custom, path: ['config', key], message: `${key} is required when configuring HubSpot OAuth token refresh.` });
+      }
+    }
+  }
 });
 const activeSchema = z.object({ isActive: z.boolean() }).strict();
 

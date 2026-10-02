@@ -53,7 +53,10 @@ const fieldsByType: Record<SourceType, Field[]> = {
     { key: 'baseUrl', label: 'API base URL', placeholder: 'https://api.hubapi.com' },
     { key: 'objectType', label: 'Object type', required: true, placeholder: 'contacts, companies, deals' },
     { key: 'properties', label: 'Properties (comma-separated)', placeholder: 'firstname,lastname,email' },
-    { key: 'accessToken', label: 'Private app access token', secret: true, required: true }
+    { key: 'accessToken', label: 'Private app or OAuth access token', secret: true, required: true },
+    { key: 'clientId', label: 'OAuth client ID' },
+    { key: 'clientSecret', label: 'OAuth client secret', secret: true },
+    { key: 'refreshToken', label: 'OAuth refresh token', secret: true }
   ],
   MONDAY: [
     { key: 'boardId', label: 'Board ID', required: true },
