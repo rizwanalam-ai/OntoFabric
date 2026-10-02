@@ -17,6 +17,13 @@ type QueryResponse = {
   sourceNodes: GraphNode[];
 };
 
+const suggestedPrompts = [
+  'Show product specifications',
+  'Find similar products',
+  'Summarize this product',
+  'Answer a technical question'
+];
+
 export function GraphChatAssistant({ onHighlightNodes, id }: GraphChatAssistantProps) {
   const [prompt, setPrompt] = useState('');
   const [response, setResponse] = useState<QueryResponse | null>(null);
@@ -42,12 +49,24 @@ export function GraphChatAssistant({ onHighlightNodes, id }: GraphChatAssistantP
   return (
     <aside id={id} className="flex w-full shrink-0 flex-col rounded-[1.75rem] border border-white/10 bg-[#0c1525] lg:w-[330px]">
       <div className="border-b border-white/10 p-5">
-        <p className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-[0.2em] text-fuchsia-300"><Sparkles size={13} /> Graph assistant</p>
-        <h3 className="mt-2 text-lg font-semibold text-white">Ask the ontology</h3>
-        <p className="mt-1 text-xs leading-5 text-slate-500">Answers are grounded in read-only Cypher results and cite source node IDs.</p>
+        <p className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-[0.2em] text-fuchsia-300"><Sparkles size={13} /> Aida (AI Assistant)</p>
+        <h3 className="mt-2 text-lg font-semibold text-white">What can I help you with today?</h3>
+        <p className="mt-1 text-xs leading-5 text-slate-500">Answers are grounded in your product knowledge.</p>
       </div>
       <div className="flex min-h-0 flex-1 flex-col p-5">
-        <div className="mb-4 flex items-center gap-2 text-xs text-slate-400"><Bot size={15} className="text-cyan-300" /> Natural-language query</div>
+        <div className="mb-3 flex items-center gap-2 text-xs text-slate-400"><Bot size={15} className="text-cyan-300" /> Suggested questions</div>
+        <div className="mb-4 flex flex-col items-start gap-2">
+          {suggestedPrompts.map((suggestedPrompt) => (
+            <button
+              key={suggestedPrompt}
+              type="button"
+              onClick={() => setPrompt(suggestedPrompt)}
+              className="rounded-full border border-[#dbe8f7] bg-white px-3.5 py-2 text-left text-xs font-medium text-[#244a76] transition hover:border-[#8eb5f3] hover:bg-[#f2f7ff]"
+            >
+              {suggestedPrompt}
+            </button>
+          ))}
+        </div>
         <form onSubmit={submit}>
           <textarea
             value={prompt}

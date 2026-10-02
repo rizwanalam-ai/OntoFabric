@@ -3,18 +3,130 @@
 @tailwind utilities;
 
 :root {
-  font-family: 'Space Grotesk', 'Avenir Next', sans-serif;
-  color: #f8fafc;
-  background: #020617;
+  font-family: Arial, 'Helvetica Neue', sans-serif;
+  color: #1b2f49;
+  background: #f5f8fc;
 }
 
 body {
   margin: 0;
   min-width: 320px;
-  background:
-    radial-gradient(circle at 84% 0%, rgba(19, 79, 104, 0.24), transparent 31rem),
-    radial-gradient(circle at 10% 100%, rgba(79, 29, 93, 0.14), transparent 28rem),
-    #060b14;
+  background: #f5f8fc;
+}
+
+#root [class*="bg-[#0a1221]"],
+#root [class*="bg-[#07101d]"],
+#root [class*="bg-[#080e19]"],
+#root [class*="bg-[#0b1424]"],
+#root [class*="bg-[#0b1220]"],
+#root [class*="bg-[#0c1525]"],
+#root [class*="bg-[#101a2c]"],
+#root [class*="bg-[#190d25]"] {
+  background-color: #ffffff !important;
+}
+
+#root [class*="bg-white/[0.03]"],
+#root [class*="bg-white/[0.04]"],
+#root [class*="bg-white/[0.05]"] {
+  background-color: #f7faff !important;
+}
+
+#root [class*="bg-[#030711]/"] {
+  background-color: rgba(9, 35, 67, 0.52) !important;
+}
+
+#root [class*="bg-[#1c4c67]"],
+#root [class*="bg-[#25627d]"] {
+  background-color: #245ff4 !important;
+}
+
+#root [class*="bg-[#4d3b23]"],
+#root [class*="bg-[#6a502d]"] {
+  background-color: #fff4df !important;
+}
+
+#root [class~="text-white"],
+#root [class~="text-slate-100"] {
+  color: #1b2f49 !important;
+}
+
+#root [class~="text-slate-200"],
+#root [class~="text-slate-300"] {
+  color: #344b68 !important;
+}
+
+#root [class~="text-slate-400"] {
+  color: #5c708b !important;
+}
+
+#root [class*="text-cyan-"] {
+  color: #2459b8 !important;
+}
+
+#root [class*="text-blue-100"],
+#root [class*="text-sky-100"],
+#root [class*="text-indigo-100"],
+#root [class*="text-emerald-100"] {
+  color: #294565 !important;
+}
+
+#root [class*="text-amber-100"] {
+  color: #805b17 !important;
+}
+
+#root [class*="bg-cyan-300"] {
+  background-color: #2463f5 !important;
+}
+
+#root [class*="bg-cyan-200"] {
+  background-color: #174fd1 !important;
+}
+
+#root button[class*="bg-cyan-300"],
+#root button[class*="bg-cyan-200"] {
+  color: #ffffff !important;
+}
+
+#root [class*="border-white/"] {
+  border-color: #d7e1e8 !important;
+}
+
+#root [class*="border-cyan-"] {
+  border-color: #bdd7ea !important;
+}
+
+#root [class*="bg-indigo-500"] {
+  background-color: #2463f5 !important;
+}
+
+#root header[class*="bg-[#08294d]"] [class*="text-white"] {
+  color: #ffffff !important;
+}
+
+#root header[class*="bg-[#08294d]"] [class*="text-blue-100"] {
+  color: #d9eaff !important;
+}
+
+#root nav[aria-label="Workspace sections"] [class*="text-white"] {
+  color: #ffffff !important;
+}
+
+#root nav[aria-label="Workspace sections"] [class*="text-blue-100"] {
+  color: #d9eaff !important;
+}
+
+#root .react-flow__pane,
+#root .react-flow__viewport {
+  background-color: #ffffff;
+}
+
+#root .react-flow {
+  background-color: #ffffff !important;
+  background-image: none !important;
+}
+
+#root .react-flow__background path {
+  stroke: #d8e4f2;
 }
 
 button,

@@ -74,21 +74,27 @@ export default function App() {
   const relationshipNames = [...new Set(graph.edges.map((edge) => edge.relationship))];
 
   return (
-    <main className="min-h-screen bg-[#060b14] text-slate-100">
-      <header className="flex min-h-[64px] items-center justify-between border-b border-white/10 bg-[#0a1221]/90 px-5 py-3 backdrop-blur md:px-8">
+    <main className="min-h-screen bg-[#f5f8fc] text-slate-800">
+      <header className="flex min-h-[64px] items-center justify-between border-b border-[#183c62] bg-[#08294d] px-5 py-3 text-white backdrop-blur md:px-8">
         <div className="flex items-center gap-4">
-          <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-cyan-300 text-[#07111d] shadow-lg shadow-cyan-300/10"><Network size={20} /></div>
+          <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-white/10 text-[#bdeafa] shadow-[0_10px_25px_rgba(15,46,74,0.12)]">
+            <div className="relative h-5 w-5">
+              <span className="absolute left-1 top-1 h-2.5 w-2.5 rounded-full bg-[#bdeafa]" />
+              <span className="absolute right-0 top-0 h-2.5 w-2.5 rounded-full bg-[#bdeafa]" />
+              <span className="absolute bottom-0 left-1 h-2.5 w-2.5 rounded-full bg-[#bdeafa]" />
+            </div>
+          </div>
           <div>
-            <div className="flex items-center gap-2"><h1 className="text-lg font-semibold tracking-tight">OntoFabric</h1><span className="flex items-center gap-2 rounded-full border border-emerald-300/25 bg-emerald-300/10 px-2.5 py-1 text-[9px] font-bold uppercase tracking-[0.14em] text-emerald-100"><span className="h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-300" />OntoFabric Workspace (Live)</span></div>
-            <p className="mt-1 text-xs text-slate-500">Enterprise ontology command center</p>
+            <div className="flex items-center gap-2"><h1 className="text-lg font-semibold tracking-tight text-white">Datamainstay</h1><span className="flex items-center gap-2 rounded-full border border-blue-300/40 bg-blue-300/10 px-2.5 py-1 text-[9px] font-bold uppercase tracking-[0.14em] text-blue-100"><span className="h-1.5 w-1.5 animate-pulse rounded-full bg-blue-300" />Workspace active</span></div>
+            <p className="mt-1 text-xs text-blue-100/75">Enterprise ontology command center</p>
           </div>
         </div>
-        <nav className="flex items-center gap-2 text-xs text-slate-400">
+        <nav className="flex items-center gap-2 text-xs text-blue-100">
           <button type="button" aria-label="Search workspace" className="hidden rounded-xl p-2.5 transition hover:bg-white/10 hover:text-white sm:block"><Search size={17} /></button>
           <button type="button" aria-label="Workspace settings" onClick={() => setIsAiSettingsOpen(true)} className="rounded-xl p-2.5 transition hover:bg-white/10 hover:text-white"><Settings2 size={17} /></button>
         </nav>
       </header>
-      <nav className="border-b border-white/15 bg-[#0a1221] px-3 md:px-8" aria-label="Workspace sections">
+      <nav className="border-b border-[#183c62] bg-[#0b3159] px-3 md:px-8" aria-label="Workspace sections">
         <div className="flex max-w-7xl gap-1" role="tablist">
           {[
             { id: 'explorer', label: 'Explorer', icon: Network },
@@ -96,7 +102,7 @@ export default function App() {
             { id: 'approvals', label: 'Approvals', icon: ClipboardCheck },
             { id: 'cockpit', label: 'S&OP Cockpit', icon: Factory },
             { id: 'data-sources', label: 'Data Sources', icon: Database }
-          ].map(({ id, label, icon: Icon }) => <button key={id} type="button" role="tab" aria-selected={activeView === id} onClick={() => setActiveView(id as WorkspaceView)} className={`flex items-center gap-2 border-b-2 px-3 py-3 text-xs font-semibold transition ${activeView === id ? 'border-cyan-300 text-cyan-200' : 'border-transparent text-slate-400 hover:border-white/30 hover:text-slate-200'}`}><Icon size={14} />{label}</button>)}
+          ].map(({ id, label, icon: Icon }) => <button key={id} type="button" role="tab" aria-selected={activeView === id} onClick={() => setActiveView(id as WorkspaceView)} className={`flex items-center gap-2 border-b-2 px-3 py-3 text-xs font-semibold transition ${activeView === id ? 'border-[#4385ff] text-white' : 'border-transparent text-blue-100/75 hover:border-white/40 hover:text-white'}`}><Icon size={14} />{label}</button>)}
         </div>
       </nav>
       <div className="flex min-h-[calc(100vh-112px)] flex-col lg:flex-row">
@@ -105,16 +111,16 @@ export default function App() {
           <section className="flex min-h-[650px] min-w-0 flex-1 flex-col gap-3 p-3 md:p-4">
           <div className="flex flex-wrap items-end justify-between gap-3">
             <div>
-              <p className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-[0.24em] text-fuchsia-300"><Sparkles size={13} /> Ontology explorer</p>
-              <h2 className="mt-1 text-2xl font-semibold tracking-tight text-white md:text-3xl">See how your business connects.</h2>
+              <p className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-[0.24em] text-[#3b82f6]"><Sparkles size={13} /> Ontology explorer</p>
+              <h2 className="mt-1 text-2xl font-semibold tracking-tight text-slate-800 md:text-3xl">See how your business connects.</h2>
             </div>
             <div className="flex items-center gap-1">
-              <button type="button" onClick={() => setIsSourceSyncOpen((current) => !current)} aria-expanded={isSourceSyncOpen} aria-controls="source-sync-panel" className="flex items-center gap-1 rounded-lg px-2 py-2 text-xs text-slate-400 transition hover:bg-white/10 hover:text-white">{isSourceSyncOpen ? <ChevronLeft size={14} /> : <ChevronRight size={14} />} <span className="hidden sm:inline">Source sync</span></button>
-              <button type="button" onClick={() => setIsAssistantOpen((current) => !current)} aria-expanded={isAssistantOpen} aria-controls="graph-assistant-panel" className="flex items-center gap-1 rounded-lg px-2 py-2 text-xs text-slate-400 transition hover:bg-white/10 hover:text-white"><span className="hidden sm:inline">Assistant</span>{isAssistantOpen ? <ChevronRight size={14} /> : <ChevronLeft size={14} />}</button>
+              <button type="button" onClick={() => setIsSourceSyncOpen((current) => !current)} aria-expanded={isSourceSyncOpen} aria-controls="source-sync-panel" className="flex items-center gap-1 rounded-lg px-2 py-2 text-xs text-slate-600 transition hover:bg-slate-200 hover:text-slate-900">{isSourceSyncOpen ? <ChevronLeft size={14} /> : <ChevronRight size={14} />} <span className="hidden sm:inline">Source sync</span></button>
+              <button type="button" onClick={() => setIsAssistantOpen((current) => !current)} aria-expanded={isAssistantOpen} aria-controls="graph-assistant-panel" className="flex items-center gap-1 rounded-lg px-2 py-2 text-xs text-slate-600 transition hover:bg-slate-200 hover:text-slate-900"><span className="hidden sm:inline">Assistant</span>{isAssistantOpen ? <ChevronRight size={14} /> : <ChevronLeft size={14} />}</button>
               {loading ? <span className="ml-2 text-xs text-slate-500">Loading graph...</span> : <span className="ml-2 font-mono text-xs text-slate-500">{graph.nodes.length}N / {graph.edges.length}E</span>}
             </div>
           </div>
-          {error && <div className="rounded-xl border border-amber-300/20 bg-amber-300/10 px-4 py-3 text-xs text-amber-100">{error}</div>}
+          {error && <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs text-amber-900">{error}</div>}
           <div className="flex h-[calc(100vh-155px)] min-h-[680px] min-w-0 flex-1 flex-col gap-3 xl:flex-row">
             <GraphExplorer
               nodes={graph.nodes}
