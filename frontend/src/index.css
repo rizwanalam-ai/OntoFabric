@@ -50,6 +50,10 @@ body {
   color: #1b2f49 !important;
 }
 
+#root button[class~="text-white"] {
+  color: #ffffff !important;
+}
+
 #root [class~="text-slate-200"],
 #root [class~="text-slate-300"] {
   color: #344b68 !important;
