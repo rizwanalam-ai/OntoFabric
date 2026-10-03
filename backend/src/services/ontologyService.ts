@@ -4,7 +4,7 @@ import { z } from 'zod';
 import { domainSchemas } from '@ontofabric/shared/domainSchemas.js';
 import { DEFAULT_TEMPORAL_END, type DomainContext, type GraphEdge, type GraphNode, type NodeProvenance, type PrimitiveDictionary } from '@ontofabric/shared/types.js';
 import { anonymizeText } from './anonymizationService.js';
-import { getAiClient, getAiModel } from './aiService.js';
+import { getAiClient, getAiModel, getAiProvider } from './aiService.js';
 
 const primitive = z.union([z.string(), z.number(), z.boolean(), z.null()]);
 const primitiveDictionary = z.record(primitive);
@@ -80,29 +80,39 @@ const safeNeo4jLabel = (label: string): string => label.replace(/[^A-Za-z0-9_]/g
 export const extractOntologyFromText = async (rawText: string, domain: DomainContext): Promise<{ nodes: GraphNode[]; edges: GraphEdge[]; privacy: { redactedCount: number; redactionId: string } }> => {
   const schema = domainSchemas[domain];
   const anonymized = await anonymizeText(rawText, domain);
-  const completion = await getAiClient().chat.completions.create({
-    model: getAiModel(),
-    temperature: 0,
-    response_format: ontologyResponseFormat,
-    messages: [
-      {
-        role: 'system',
-        content: [
-          'Extract an enterprise ontology from the supplied text.',
-          'Return only a JSON object with exactly two arrays: nodes and edges.',
-          'Each node must have id, type { id, label, attributes }, domain, secondaryLabels, sourceSystem, properties, createdAt, validFrom, validTo, transactionFrom, transactionTo, and provenance { sourceSystem, rawSourceId, filePath?, lineNumber?, extractionTimestamp, rawPayload?, mcpTool? }.',
-          'Each edge must have id, source, target, relationship, properties, validFrom, validTo, transactionFrom, and transactionTo.',
-          'Use primitive values only in attributes, properties, and edge properties.',
-          'Use sourceSystem SME_INPUT when the source cannot be inferred.',
-          `The selected domain is ${schema.displayName} (${domain}). ${schema.systemPromptRules}`,
-          `Allowed node labels: ${schema.allowedNodeLabels.join(', ') || 'custom labels configured by the caller'}.`,
-          `Allowed relationships: ${schema.allowedRelationships.join(', ') || 'custom relationships configured by the caller'}.`,
-          'Return valid JSON matching exactly {"nodes": [...], "edges": [...]}. Do not return markdown or explanatory text.'
-        ].join(' ')
-      },
-      { role: 'user', content: anonymized.sanitizedText }
-    ]
-  });
+  let completion;
+  try {
+    completion = await getAiClient().chat.completions.create({
+      model: getAiModel(),
+      temperature: 0,
+      response_format: ontologyResponseFormat,
+      messages: [
+        {
+          role: 'system',
+          content: [
+            'Extract an enterprise ontology from the supplied text.',
+            'Return only a JSON object with exactly two arrays: nodes and edges.',
+            'Each node must have id, type { id, label, attributes }, domain, secondaryLabels, sourceSystem, properties, createdAt, validFrom, validTo, transactionFrom, transactionTo, and provenance { sourceSystem, rawSourceId, filePath?, lineNumber?, extractionTimestamp, rawPayload?, mcpTool? }.',
+            'Each edge must have id, source, target, relationship, properties, validFrom, validTo, transactionFrom, and transactionTo.',
+            'Use primitive values only in attributes, properties, and edge properties.',
+            'Use sourceSystem SME_INPUT when the source cannot be inferred.',
+            `The selected domain is ${schema.displayName} (${domain}). ${schema.systemPromptRules}`,
+            `Allowed node labels: ${schema.allowedNodeLabels.join(', ') || 'custom labels configured by the caller'}.`,
+            `Allowed relationships: ${schema.allowedRelationships.join(', ') || 'custom relationships configured by the caller'}.`,
+            'Return valid JSON matching exactly {"nodes": [...], "edges": [...]}. Do not return markdown or explanatory text.'
+          ].join(' ')
+        },
+        { role: 'user', content: anonymized.sanitizedText }
+      ]
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    const status = typeof error === 'object' && error !== null && 'status' in error ? Number(error.status) : undefined;
+    if ((status === 403 || /\b403\b/.test(message)) && /zscaler|internet security|organization.?s policy/i.test(message)) {
+      throw new Error(`${getAiProvider()} was blocked by your organization's network policy (HTTP 403). Select an approved AI provider or request access to its API endpoint.`);
+    }
+    throw error;
+  }
 
   const content = completion.choices[0]?.message.content;
   if (!content) {
