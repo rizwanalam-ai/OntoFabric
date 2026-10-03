@@ -301,17 +301,30 @@ export const linkMatchingProducts = async (nodeIds: string[]): Promise<void> => 
   }
 };
 
+export const deleteGraphNode = async (id: string): Promise<boolean> => {
+  const session = getNeo4jDriver().session();
+  try {
+    const result = await session.executeWrite((transaction) => transaction.run(
+      'MATCH (node:Entity {id: $id}) DETACH DELETE node RETURN count(node) AS deletedCount',
+      { id }
+    ));
+    return (result.records[0]?.get('deletedCount').toNumber() ?? 0) > 0;
+  } finally {
+    await session.close();
+  }
+};
+
 export const queryGraphAtTimestamp = async (asOfDate: string): Promise<{ nodes: unknown[]; edges: unknown[] }> => {
   const session = getNeo4jDriver().session();
 
   try {
     const result = await session.executeRead((transaction) => transaction.run(
-      `MATCH (n)
+      `MATCH (n:Entity)
        WHERE coalesce(n.validFrom, n.createdAt, '1970-01-01T00:00:00.000Z') <= $asOfDate
          AND coalesce(n.validTo, '9999-12-31T23:59:59.999Z') > $asOfDate
          AND coalesce(n.transactionFrom, n.createdAt, '1970-01-01T00:00:00.000Z') <= $asOfDate
          AND coalesce(n.transactionTo, '9999-12-31T23:59:59.999Z') > $asOfDate
-       OPTIONAL MATCH (n)-[r]->(m)
+      OPTIONAL MATCH (n)-[r]->(m:Entity)
        WHERE (r IS NULL OR (
          coalesce(m.validFrom, m.createdAt, '1970-01-01T00:00:00.000Z') <= $asOfDate
          AND coalesce(m.validTo, '9999-12-31T23:59:59.999Z') > $asOfDate

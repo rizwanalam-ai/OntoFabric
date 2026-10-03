@@ -42,7 +42,7 @@ body {
 
 #root [class*="bg-[#4d3b23]"],
 #root [class*="bg-[#6a502d]"] {
-  background-color: #fff4df !important;
+  background-color: #8a5a12 !important;
 }
 
 #root [class~="text-white"],
@@ -78,16 +78,16 @@ body {
   color: #805b17 !important;
 }
 
-#root [class*="bg-cyan-300"] {
+#root [class~="bg-cyan-300"] {
   background-color: #2463f5 !important;
 }
 
-#root [class*="bg-cyan-200"] {
+#root [class~="bg-cyan-200"] {
   background-color: #174fd1 !important;
 }
 
-#root button[class*="bg-cyan-300"],
-#root button[class*="bg-cyan-200"] {
+#root button[class~="bg-cyan-300"],
+#root button[class~="bg-cyan-200"] {
   color: #ffffff !important;
 }
 

@@ -10,12 +10,13 @@ export declare const extractOntologyFromText: (rawText: string, domain: DomainCo
     };
 }>;
 export declare const persistGraphToNeo4j: (nodes: GraphNode[], edges: GraphEdge[]) => Promise<void>;
-export declare const queryGraphAtTimestamp: (asOfDate: string, domain?: DomainContext) => Promise<{
+export declare const linkMatchingProducts: (nodeIds: string[]) => Promise<void>;
+export declare const queryGraphAtTimestamp: (asOfDate: string) => Promise<{
     nodes: unknown[];
     edges: unknown[];
 }>;
 export declare const closeOntologyServices: () => Promise<void>;
-export declare const queryGraphFromNeo4j: (domain?: DomainContext) => Promise<{
+export declare const queryGraphFromNeo4j: () => Promise<{
     nodes: unknown[];
     edges: unknown[];
 }>;

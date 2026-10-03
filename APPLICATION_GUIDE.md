@@ -1,13 +1,13 @@
 # OntoFabric Application Guide
 
-OntoFabric is an enterprise ontology and knowledge-graph workspace for combining operational data, curated subject-matter-expert input, entity resolution, and S&OP planning data in one interface.
+OntoFabric is an enterprise ontology and knowledge-graph workspace for combining operational data, curated subject-matter-expert input, entity resolution, and cross-domain business activity in one interface.
 
 The application has four workspace areas and an MCP integration layer:
 
 - **Explorer**: inspect the ontology graph, ingest source files, add SME entities and relationships, and ask grounded graph questions.
 - **Schema Designer**: visually define entity types, properties, primary keys, required fields, and relationships before saving the schema to Neo4j.
 - **Approvals**: review and resolve possible duplicate entities before they become canonical graph data.
-- **S&OP Cockpit**: review demand, inventory, supplier exposure, and production capacity.
+- **Business Cockpit**: review graph coverage, connected entities, source-system representation, and recent sync health across domains.
 - **MCP source tools**: parse Excel/PDF files and retrieve ERP/CRM records through the Model Context Protocol server.
 
 ## Architecture
@@ -29,7 +29,7 @@ Excel / PDF / ERP / CRM / SME input
 
 | Package | Responsibility |
 | --- | --- |
-| `frontend` | React/Vite workspace, graph explorer, visual schema designer, source sync, approvals, and S&OP views |
+| `frontend` | React/Vite workspace, graph explorer, visual schema designer, source sync, approvals, and business cockpit |
 | `backend` | Express API, Neo4j persistence, ontology extraction, graph queries, and entity resolution |
 | `mcp-server` | Official MCP TypeScript SDK server for source parsing |
 | `shared` | Shared graph, ontology, temporal, S&OP, and primitive-property contracts |
@@ -90,7 +90,7 @@ Embeddings use OpenAI by default because Gemini and DeepSeek chat endpoints do n
 
 ### Business source configuration
 
-Configure SAP, PostgreSQL, Snowflake, HubSpot, monday.com, Salesforce, and Odoo from the **Data Sources** workspace page. Credentials are encrypted in `backend/data/ontofabric_config.db`; these connectors require an active saved connection and do not read their credentials from `.env`. From **Explorer > Add Data Source > CRM & ERP**, sync HubSpot, monday.com, Salesforce, or Odoo. SAP sync remains under Files and APIs.
+Configure SAP, PostgreSQL, Snowflake, HubSpot, monday.com, Salesforce, and Odoo from the **Data Sources** workspace page. Credentials are encrypted in `backend/data/ontofabric_config.db`; these connectors require an active saved connection and do not read their credentials from `.env`. From **Explorer > Add Data Source > CRM & ERP**, sync SAP, HubSpot, monday.com, Salesforce, or Odoo.
 
 Use an SAP Business Accelerator Hub endpoint, a HubSpot private-app access token, a monday.com API token and board ID, a Salesforce OAuth access token with instance URL/object API name, or an Odoo URL/database/user/API key/model. Connector accounts should be restricted to read-only permissions needed for the selected object/model.
 
@@ -292,31 +292,13 @@ For each candidate pair, reviewers can:
 
 Resolved items are removed from the pending queue. The backend validates every action as `MERGE`, `LINK`, or `REJECT`.
 
-## S&OP Cockpit Workflow
+## Business Cockpit
 
-The **S&OP Cockpit** tab presents the planning summary as a focused operating view.
+The **Business Cockpit** gives a cross-domain view of the ontology graph and source-ingestion health. Its domain selector filters graph and sync data to Supply Chain, Finance, Healthcare, HR & Organization, Custom, or all domains.
 
-### Summary metrics
+The summary shows entity and relationship counts, the share of entities connected to another entity, and the recent sync success rate. Entity coverage is grouped by type and domain, source systems are counted from graph provenance, and the activity table shows recent sync outcomes and imported record counts.
 
-- Forecast demand across planning periods.
-- Number of inventory records below reorder point.
-- Longest supplier lead time.
-- Number of available work centers.
-
-### Planning tables
-
-- **Inventory by facility**: product/facility, on-hand quantity, and reorder point. Alert rows identify inventory below reorder point.
-- **Supplier exposure**: supplier, lead time, and minimum order quantity. Long lead times are highlighted.
-- **Production capacity**: work center, capacity, and unit cost.
-
-Each table has:
-
-- A fixed header that remains visible while the body scrolls.
-- A bounded scrollable body to prevent the dashboard from being truncated by long datasets.
-- A pagination footer showing the visible range and total count.
-- Previous and next page controls.
-
-The summary is loaded from `GET /api/sop/summary`.
+Graph metrics come from `GET /api/ontology/graph`. Sync activity uses `GET /api/audit/syncs?days=30`; no planning-specific seed data is required. S&OP entities remain available as one supported business domain in the graph.
 
 ## API Capability Map
 
@@ -390,7 +372,7 @@ The backend uses the file parsing tools through its MCP client. Graph records ar
 
 ## Start With An Empty Graph
 
-Database initialization creates indexes and constraints only; it does not add graph records. Ingest a source file or create an entity in **Explorer** to add the first nodes. The S&OP Cockpit and Approvals views remain empty until matching graph data exists.
+Database initialization creates indexes and constraints only; it does not add graph records. Ingest a source file or create an entity in **Explorer** to add graph data. The Business Cockpit reports zero coverage until records are loaded; Approvals remains empty until candidate matches exist.
 
 ## Troubleshooting
 
@@ -401,9 +383,9 @@ Database initialization creates indexes and constraints only; it does not add gr
 - Run database initialization to create indexes and constraints; ingest or enter graph records separately.
 - Verify Neo4j credentials and database name in `.env`.
 
-### The S&OP cockpit is empty
+### The Business Cockpit has no activity
 
-Ingest products, facilities, demand forecasts, suppliers, and their relationships, then refresh the browser.
+Check the selected domain and ingest data from **Explorer**. The cockpit shows graph coverage from current ontology records and sync activity recorded during the last 30 days.
 
 ### File ingestion fails
 

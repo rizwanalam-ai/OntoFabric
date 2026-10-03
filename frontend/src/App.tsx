@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import axios from 'axios';
-import { ChevronLeft, ChevronRight, ClipboardCheck, Database, Factory, Network, PencilRuler, Search, Settings2, Sparkles } from 'lucide-react';
+import { ChevronLeft, ChevronRight, ClipboardCheck, Database, LayoutDashboard, Network, PencilRuler, Search, Settings2, Sparkles } from 'lucide-react';
 import { api } from './api';
 
 import type { GraphEdge, GraphNode, Primitive } from '@ontofabric/shared/types.js';
@@ -11,7 +11,7 @@ import { IngestionPanel } from './components/IngestionPanel';
 import { NodeDetailDrawer } from './components/NodeDetailDrawer';
 import { LineageInspectorModal } from './components/LineageInspectorModal';
 import { SMEMatchQueue, type PendingMatch } from './components/SMEMatchQueue';
-import { SopPlanningPanel } from './components/SopPlanningPanel';
+import { BusinessCockpit } from './components/BusinessCockpit';
 import { SchemaDesigner } from './components/SchemaDesigner';
 import { AiSettingsModal } from './components/AiSettingsModal';
 import { DataSourcesAdmin } from './components/DataSourcesAdmin';
@@ -36,18 +36,11 @@ export default function App() {
   const refreshGraph = async () => {
     try {
       setLoading(true);
-      const [{ data: ontologyGraph }, { data: sopGraph }] = await Promise.all([
-        api.get<GraphPayload>('/api/ontology/graph'),
-        api.get<GraphPayload>('/api/sop/graph')
-      ]);
-      const mergedNodes = new Map(sopGraph.nodes.map((node) => [node.id, node]));
-      ontologyGraph.nodes.forEach((node) => mergedNodes.set(node.id, node));
-      const mergedEdges = new Map(sopGraph.edges.map((edge) => [edge.id, edge]));
-      ontologyGraph.edges.forEach((edge) => mergedEdges.set(edge.id, edge));
-      setGraph({ nodes: [...mergedNodes.values()], edges: [...mergedEdges.values()] });
+      const { data: ontologyGraph } = await api.get<GraphPayload>('/api/ontology/graph');
+      setGraph(ontologyGraph);
       setError('');
     } catch (requestError) {
-      setError(axios.isAxiosError(requestError) ? requestError.response?.data?.message ?? 'Unable to load S&OP data from Neo4j.' : 'Unable to load S&OP data from Neo4j.');
+      setError(axios.isAxiosError(requestError) ? requestError.response?.data?.message ?? 'Unable to load the business graph from Neo4j.' : 'Unable to load the business graph from Neo4j.');
     } finally {
       setLoading(false);
     }
@@ -69,6 +62,20 @@ export default function App() {
     const updateNode = (current: GraphNode): GraphNode => current.id === node.id ? { ...current, properties: { ...current.properties, ...changedFields } } : current;
     setGraph((current) => ({ ...current, nodes: current.nodes.map(updateNode) }));
     setSelectedNode(updateNode(node));
+  };
+  const deleteNode = async (node: GraphNode) => {
+    try {
+      await api.delete(`/api/ontology/nodes/${encodeURIComponent(node.id)}`);
+      setGraph((current) => ({
+        nodes: current.nodes.filter((item) => item.id !== node.id),
+        edges: current.edges.filter((edge) => edge.source !== node.id && edge.target !== node.id)
+      }));
+      setSelectedNode(null);
+    } catch (requestError) {
+      throw new Error(axios.isAxiosError(requestError)
+        ? requestError.response?.data?.message ?? requestError.response?.data?.error ?? 'Unable to delete this entity.'
+        : 'Unable to delete this entity.');
+    }
   };
   const entityLabels = [...new Set(graph.nodes.map((node) => node.type.label))];
   const relationshipNames = [...new Set(graph.edges.map((edge) => edge.relationship))];
@@ -100,7 +107,7 @@ export default function App() {
             { id: 'explorer', label: 'Explorer', icon: Network },
             { id: 'designer', label: 'Schema Designer', icon: PencilRuler },
             { id: 'approvals', label: 'Approvals', icon: ClipboardCheck },
-            { id: 'cockpit', label: 'S&OP Cockpit', icon: Factory },
+            { id: 'cockpit', label: 'Business Cockpit', icon: LayoutDashboard },
             { id: 'data-sources', label: 'Data Sources', icon: Database }
           ].map(({ id, label, icon: Icon }) => <button key={id} type="button" role="tab" aria-selected={activeView === id} onClick={() => setActiveView(id as WorkspaceView)} className={`flex items-center gap-2 border-b-2 px-3 py-3 text-xs font-semibold transition ${activeView === id ? 'border-[#4385ff] text-white' : 'border-transparent text-blue-100/75 hover:border-white/40 hover:text-white'}`}><Icon size={14} />{label}</button>)}
         </div>
@@ -134,11 +141,11 @@ export default function App() {
             {isAssistantOpen && <GraphChatAssistant id="graph-assistant-panel" onHighlightNodes={setHighlightedNodeIds} />}
           </div>
           </section>
-        </> : activeView === 'designer' ? <SchemaDesigner /> : activeView === 'data-sources' ? <DataSourcesAdmin /> : <section className="flex min-w-0 flex-1 flex-col gap-4 p-4 md:p-6">
-          {activeView === 'approvals' ? <SMEMatchQueue matches={pendingMatches} onResolved={removePendingMatch} /> : <SopPlanningPanel refreshKey={graph.nodes.length + graph.edges.length} />}
-        </section>}
+        </> : activeView === 'designer' ? <SchemaDesigner /> : activeView === 'data-sources' ? <DataSourcesAdmin /> : activeView === 'approvals'
+          ? <section className="flex min-w-0 flex-1 flex-col gap-4 p-4 md:p-6"><SMEMatchQueue matches={pendingMatches} onResolved={removePendingMatch} /></section>
+          : <BusinessCockpit nodes={graph.nodes} edges={graph.edges} onRefresh={refreshGraph} onOpenExplorer={() => setActiveView('explorer')} />}
       </div>
-      <NodeDetailDrawer node={selectedNode} edges={graph.edges} onClose={() => setSelectedNode(null)} onViewLineage={(node) => setLineageNode(node)} onEditProperties={(node, changedFields) => setPendingAction({ node, changedFields })} />
+      <NodeDetailDrawer node={selectedNode} edges={graph.edges} onClose={() => setSelectedNode(null)} onViewLineage={(node) => setLineageNode(node)} onEditProperties={(node, changedFields) => setPendingAction({ node, changedFields })} onDeleteNode={deleteNode} />
       {pendingAction && <ActionExecutionModal node={pendingAction.node} changedFields={pendingAction.changedFields} onClose={() => setPendingAction(null)} onLocalSave={() => { applyLocalChanges(); setPendingAction(null); }} onSyncSuccess={() => { applyLocalChanges(); }} />}
       <LineageInspectorModal node={lineageNode} onClose={() => setLineageNode(null)} />
       {isAiSettingsOpen && <AiSettingsModal onClose={() => setIsAiSettingsOpen(false)} />}

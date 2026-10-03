@@ -120,30 +120,27 @@ export const extractSubgraphContext = async (entityIds, hops = 2) => {
 };
 const isSupplyShortageQuestion = (prompt) => /shortage|shortfall|below\s+(?:the\s+)?reorder|low\s+inventory|insufficient\s+inventory|stock\s+out/i.test(prompt);
 const supplyShortageFallbackQuery = `
-    MATCH (product:Entity {domain: $domain})-[stored:RELATED_TO {relationship: 'STORED_AT'}]->(facility:Entity {domain: $domain})
+    MATCH (product:Entity)-[stored:RELATED_TO {relationship: 'STORED_AT'}]->(facility:Entity)
     WHERE toFloat(coalesce(stored.onHand, 0)) < toFloat(coalesce(stored.reorderPoint, stored.safetyStock, 0))
-    OPTIONAL MATCH (product)-[bom:RELATED_TO {relationship: 'REQUIRES_BOM'}]->(component:Entity {domain: $domain})
-    OPTIONAL MATCH (component)-[supply:RELATED_TO {relationship: 'SUPPLIED_BY'}]->(supplier:Entity {domain: $domain})
+    OPTIONAL MATCH (product)-[bom:RELATED_TO {relationship: 'REQUIRES_BOM'}]->(component:Entity)
+    OPTIONAL MATCH (component)-[supply:RELATED_TO {relationship: 'SUPPLIED_BY'}]->(supplier:Entity)
     RETURN product, stored, facility, collect({component: component, bom: bom, supplier: supplier, supply: supply}) AS supplyChain
     LIMIT 100`;
-const executeSupplyShortageFallback = async (session, domain) => {
-    const result = await session.executeRead((transaction) => transaction.run(supplyShortageFallbackQuery, { domain }));
+const executeSupplyShortageFallback = async (session) => {
+    const result = await session.executeRead((transaction) => transaction.run(supplyShortageFallbackQuery));
     return { records: result.records, query: supplyShortageFallbackQuery.trim() };
 };
 export const executeGroundedQuery = async (userPrompt, domain) => {
     const domainSchema = domainSchemas[domain];
-    const domainPromptContext = `${ontologySchema}\nActive domain: ${domainSchema.displayName} (${domain}).\nDomain rules: ${domainSchema.systemPromptRules}\nAllowed node labels: ${domainSchema.allowedNodeLabels.join(', ') || 'custom labels'}.\nAllowed relationships: ${domainSchema.allowedRelationships.join(', ') || 'custom relationships'}.\nWhen querying Entity nodes, filter them with {domain: $domain}; use the $domain parameter for all applicable node matches.`;
+    const domainPromptContext = `${ontologySchema}\nActive domain: ${domainSchema.displayName} (${domain}).\nDomain rules: ${domainSchema.systemPromptRules}\nAllowed node labels: ${domainSchema.allowedNodeLabels.join(', ') || 'custom labels'}.\nAllowed relationships: ${domainSchema.allowedRelationships.join(', ') || 'custom relationships'}. Query entities across all domains when relevant.`;
     const cypherQuery = await translateToCypher(userPrompt, domainPromptContext);
-    if (/\bEntity\b/i.test(cypherQuery) && !/domain\s*:\s*\$domain/i.test(cypherQuery)) {
-        throw new Error('Generated Cypher did not include the active domain filter.');
-    }
     validateReadOnlyCypher(cypherQuery);
     const session = getNeo4jDriver().session();
     try {
-        let result = await session.executeRead((transaction) => transaction.run(cypherQuery, { domain }));
+        let result = await session.executeRead((transaction) => transaction.run(cypherQuery));
         let resolvedCypherQuery = cypherQuery;
         if (result.records.length === 0 && domain === 'SUPPLY_CHAIN' && isSupplyShortageQuestion(userPrompt)) {
-            const fallback = await executeSupplyShortageFallback(session, domain);
+            const fallback = await executeSupplyShortageFallback(session);
             result = { records: fallback.records };
             resolvedCypherQuery = fallback.query;
         }

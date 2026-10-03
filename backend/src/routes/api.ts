@@ -1,4 +1,6 @@
 import path from 'node:path';
+import { lookup } from 'node:dns/promises';
+import { isIP } from 'node:net';
 
 import { Router } from 'express';
 import { z } from 'zod';
@@ -8,6 +10,7 @@ import { DEFAULT_TEMPORAL_END, type DomainContext, type GraphEdge, type GraphNod
 import { getUserRole, redactNodeProperties } from '../middleware/abacMiddleware.js';
 import { callExcelParser, callPdfParser } from '../mcpClient.js';
 import {
+  deleteGraphNode,
   extractOntologyFromText,
   persistGraphToNeo4j,
   queryGraphAtTimestamp,
@@ -21,7 +24,7 @@ import { executeLocalGraphUpdate, executeWriteBackAction } from '../services/act
 import { syncSapSandbox } from '../services/sapService.js';
 import { getFileSourceType, parseUploadedFile } from '../services/fileIngestionService.js';
 import { recordSyncAudit } from '../services/syncAuditService.js';
-import { getAutoLinkedRelationshipStats, linkConfiguredRecords } from '../services/crossSourceLinkerService.js';
+import { getAutoLinkedRelationshipStats, linkConfiguredRecordsBestEffort } from '../services/crossSourceLinkerService.js';
 
 const router = Router();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 25 * 1024 * 1024 } });
@@ -37,7 +40,7 @@ const ingestFileSchema = z.object({
 }).strict();
 
 const uploadFileSchema = z.object({
-  source: z.enum(['LOCAL', 'GOOGLE_DRIVE', 'DROPBOX']).default('LOCAL'),
+  source: z.enum(['LOCAL', 'GOOGLE_DRIVE', 'DROPBOX', 'WEBSITE']).default('LOCAL'),
   remoteUrl: z.string().url().optional(),
   fileName: z.string().trim().min(1).optional(),
   domain: domainSchema.default('CUSTOM'),
@@ -94,7 +97,7 @@ const linkIngestedNodes = async (nodes: GraphNode[]): Promise<Record<string, num
     byLabel.set(node.type.label, [...(byLabel.get(node.type.label) ?? []), { ...node.properties, id: node.id }]);
   }
   for (const [label, records] of byLabel) {
-    const linked = await linkConfiguredRecords(records, label);
+    const linked = await linkConfiguredRecordsBestEffort(records, label);
     for (const [relationshipType, count] of Object.entries(linked)) {
       counts[relationshipType] = (counts[relationshipType] ?? 0) + count;
     }
@@ -102,9 +105,10 @@ const linkIngestedNodes = async (nodes: GraphNode[]): Promise<Record<string, num
   return counts;
 };
 
-const sharedDownloadUrl = (source: 'GOOGLE_DRIVE' | 'DROPBOX', value: string): URL => {
+const sharedDownloadUrl = (source: 'GOOGLE_DRIVE' | 'DROPBOX' | 'WEBSITE', value: string): URL => {
   const url = new URL(value);
-  if (url.protocol !== 'https:') throw new Error('Shared file links must use HTTPS.');
+  if (url.protocol !== 'https:' || url.username || url.password) throw new Error('File links must use HTTPS and cannot contain credentials.');
+  if (source === 'WEBSITE') return url;
   if (source === 'GOOGLE_DRIVE') {
     if (!['drive.google.com', 'docs.google.com'].includes(url.hostname)) throw new Error('Use a Google Drive or Docs shared link.');
     const fileId = url.pathname.match(/\/d\/([^/]+)/)?.[1];
@@ -113,6 +117,73 @@ const sharedDownloadUrl = (source: 'GOOGLE_DRIVE' | 'DROPBOX', value: string): U
   if (!url.hostname.endsWith('dropbox.com') && !url.hostname.endsWith('dropboxusercontent.com')) throw new Error('Use a Dropbox shared link.');
   url.searchParams.set('dl', '1');
   return url;
+};
+
+const isPublicAddress = (address: string): boolean => {
+  if (isIP(address) === 4) {
+    const octets = address.split('.').map(Number);
+    const [first, second] = octets;
+    return !(first === 0 || first === 10 || first === 127 || first >= 224
+      || (first === 100 && second >= 64 && second <= 127)
+      || (first === 169 && second === 254)
+      || (first === 172 && second >= 16 && second <= 31)
+      || (first === 192 && second === 168)
+      || (first === 192 && second === 0 && octets[2] === 0)
+      || (first === 192 && second === 0 && octets[2] === 2)
+      || (first === 198 && (second === 18 || second === 19))
+      || (first === 198 && second === 51 && octets[2] === 100)
+      || (first === 203 && second === 0 && octets[2] === 113));
+  }
+  if (isIP(address) === 6) {
+    const normalized = address.toLowerCase();
+    return (normalized.startsWith('2') || normalized.startsWith('3'))
+      && !normalized.startsWith('2001:db8:')
+      && !normalized.startsWith('2001:0:');
+  }
+  return false;
+};
+
+const assertPublicWebsite = async (url: URL): Promise<void> => {
+  if (url.protocol !== 'https:' || url.username || url.password) throw new Error('Website file URLs must use HTTPS and cannot contain credentials.');
+  const hostname = url.hostname.replace(/^\[|\]$/g, '').toLowerCase();
+  if (hostname === 'localhost' || hostname.endsWith('.localhost') || hostname.endsWith('.local')) throw new Error('Website file URLs must use a public hostname.');
+  const addresses = isIP(hostname) ? [{ address: hostname }] : await lookup(hostname, { all: true, verbatim: true });
+  if (addresses.length === 0 || addresses.some(({ address }) => !isPublicAddress(address))) throw new Error('Website file URLs must resolve only to public IP addresses.');
+};
+
+const downloadWebsiteFile = async (initialUrl: URL): Promise<{ response: Response; url: URL }> => {
+  let url = initialUrl;
+  for (let redirectCount = 0; redirectCount <= 5; redirectCount += 1) {
+    await assertPublicWebsite(url);
+    const response = await fetch(url, { redirect: 'manual' });
+    if (![301, 302, 303, 307, 308].includes(response.status)) return { response, url };
+    const location = response.headers.get('location');
+    if (!location || redirectCount === 5) throw new Error('The website file URL redirected too many times or had an invalid redirect.');
+    await response.body?.cancel();
+    url = new URL(location, url);
+  }
+  throw new Error('Unable to download the website file.');
+};
+
+const readRemoteFile = async (response: Response): Promise<Buffer> => {
+  const maxBytes = 25 * 1024 * 1024;
+  const contentLength = Number(response.headers.get('content-length') ?? 0);
+  if (contentLength > maxBytes) throw new Error('The shared file exceeds the 25 MB upload limit.');
+  if (!response.body) throw new Error('The shared file response was empty.');
+  const reader = response.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let totalBytes = 0;
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    totalBytes += value.byteLength;
+    if (totalBytes > maxBytes) {
+      await reader.cancel();
+      throw new Error('The shared file exceeds the 25 MB upload limit.');
+    }
+    chunks.push(value);
+  }
+  return Buffer.concat(chunks);
 };
 
 const fileNameFromUrl = (url: URL): string => {
@@ -290,13 +361,13 @@ router.post('/ingest/upload', upload.single('file'), async (request, response) =
     } else {
       if (!parsedRequest.data.remoteUrl) throw new Error('Provide a shared file link.');
       const downloadUrl = sharedDownloadUrl(parsedRequest.data.source, parsedRequest.data.remoteUrl);
-      const remoteResponse = await fetch(downloadUrl);
+      const { response: remoteResponse, url: resolvedDownloadUrl } = parsedRequest.data.source === 'WEBSITE'
+        ? await downloadWebsiteFile(downloadUrl)
+        : { response: await fetch(downloadUrl), url: downloadUrl };
       if (!remoteResponse.ok) throw new Error(`Unable to download shared file (${remoteResponse.status}).`);
-      const contentLength = Number(remoteResponse.headers.get('content-length') ?? 0);
-      if (contentLength > 25 * 1024 * 1024) throw new Error('The shared file exceeds the 25 MB upload limit.');
-      buffer = Buffer.from(await remoteResponse.arrayBuffer());
+      buffer = await readRemoteFile(remoteResponse);
       const disposition = remoteResponse.headers.get('content-disposition')?.match(/filename="?([^";]+)"?/i)?.[1];
-      fileName = parsedRequest.data.fileName ?? disposition ?? fileNameFromUrl(downloadUrl);
+      fileName = parsedRequest.data.fileName ?? disposition ?? fileNameFromUrl(resolvedDownloadUrl);
       sourceReference = parsedRequest.data.source;
     }
 
@@ -358,6 +429,19 @@ router.get('/ontology/graph', async (request, response) => {
     response.json({ ...graph, nodes: redactNodeProperties(graph.nodes as GraphNode[], getUserRole(request)) });
   } catch (error) {
     response.status(503).json({ error: 'Unable to query ontology graph.', message: errorMessage(error) });
+  }
+});
+
+router.delete('/ontology/nodes/:id', async (request, response) => {
+  try {
+    const deleted = await deleteGraphNode(request.params.id);
+    if (!deleted) {
+      response.status(404).json({ error: 'Graph entity not found.' });
+      return;
+    }
+    response.status(204).end();
+  } catch (error) {
+    response.status(503).json({ error: 'Unable to delete graph entity.', message: errorMessage(error) });
   }
 });
 

@@ -14,7 +14,7 @@ type RelationalSyncStatus = { state: 'idle' | 'syncing' | 'success' | 'error'; m
 type RelationalSource = 'POSTGRES' | 'SNOWFLAKE' | 'DATABRICKS';
 type BusinessSource = 'hubspot' | 'monday' | 'salesforce' | 'odoo';
 type BusinessSyncStatus = { state: 'idle' | 'syncing' | 'success' | 'error'; message: string };
-type FileSource = 'LOCAL' | 'GOOGLE_DRIVE' | 'DROPBOX';
+type FileSource = 'LOCAL' | 'GOOGLE_DRIVE' | 'DROPBOX' | 'WEBSITE';
 type SyncAuditRecord = { id: string; sourceType: string; sourceReference: string; tableName?: string; fileName?: string; entityLabel?: string; rowCount: number; nodeCount: number; edgeCount: number; status: 'SUCCEEDED' | 'FAILED'; startedAt: string; completedAt: string; errorMessage?: string };
 type SyncAuditResponse = { days: number; records: SyncAuditRecord[] };
 
@@ -68,7 +68,7 @@ export function IngestionPanel({ onRefresh, onConfigureDataSources, id, graphNod
   const [remoteFileUrl, setRemoteFileUrl] = useState('');
   const [remoteFileName, setRemoteFileName] = useState('');
   const [hubOpen, setHubOpen] = useState(false);
-  const [hubTab, setHubTab] = useState<'files' | 'databases' | 'warehouses' | 'business' | 'sme' | 'audit'>('files');
+  const [hubTab, setHubTab] = useState<'files' | 'databases' | 'business' | 'sme' | 'audit'>('files');
   const [busy, setBusy] = useState('');
   const [notice, setNotice] = useState('');
   const [sapStatus, setSapStatus] = useState<SapSyncStatus>({ state: 'idle', message: '' });
@@ -149,7 +149,7 @@ export function IngestionPanel({ onRefresh, onConfigureDataSources, id, graphNod
 
   const syncFile = (sourceType: 'EXCEL' | 'CSV' | 'PDF' | 'WORD') => run(sourceType, async () => {
     if (selectedFile || fileSource !== 'LOCAL') {
-      if (fileSource !== 'LOCAL' && !remoteFileUrl.trim()) throw new Error('Paste a Google Drive or Dropbox shared link first.');
+      if (fileSource !== 'LOCAL' && !remoteFileUrl.trim()) throw new Error('Paste a publicly accessible file URL first.');
       const formData = new FormData();
       formData.append('source', fileSource);
       formData.append('domain', 'CUSTOM');
@@ -318,7 +318,7 @@ export function IngestionPanel({ onRefresh, onConfigureDataSources, id, graphNod
             <button type="button" aria-label="Close data connections" onClick={() => setHubOpen(false)} className="rounded-xl p-2 text-slate-400 hover:bg-white/10 hover:text-white"><X size={18} /></button>
           </header>
           <div className="flex gap-1 overflow-x-auto border-b border-white/10 px-5 pt-3">
-            {([['files', 'Files'], ['databases', 'Databases'], ['warehouses', 'Cloud Warehouses'], ['business', 'CRM & ERP'], ['sme', 'SME Form'], ['audit', 'Sync Audit']] as const).map(([tab, label]) => <button key={tab} type="button" onClick={() => setHubTab(tab)} className={`whitespace-nowrap border-b-2 px-3 pb-3 text-xs font-semibold transition ${hubTab === tab ? 'border-cyan-300 text-cyan-200' : 'border-transparent text-slate-500 hover:text-slate-200'}`}>{label}</button>)}
+            {([['files', 'Files'], ['databases', 'Databases & Warehouses'], ['business', 'CRM & ERP'], ['sme', 'SME Form'], ['audit', 'Sync Audit']] as const).map(([tab, label]) => <button key={tab} type="button" onClick={() => setHubTab(tab)} className={`whitespace-nowrap border-b-2 px-3 pb-3 text-xs font-semibold transition ${hubTab === tab ? 'border-cyan-300 text-cyan-200' : 'border-transparent text-slate-500 hover:text-slate-200'}`}>{label}</button>)}
           </div>
           <div className="overflow-y-auto">
       <div className="space-y-7 p-5 lg:p-6">
@@ -341,6 +341,7 @@ export function IngestionPanel({ onRefresh, onConfigureDataSources, id, graphNod
             <option value="LOCAL">Local computer</option>
             <option value="GOOGLE_DRIVE">Google Drive shared link</option>
             <option value="DROPBOX">Dropbox shared link</option>
+            <option value="WEBSITE">Public website file URL</option>
           </select>
           {fileSource === 'LOCAL' ? <>
             <label className="mt-3 flex cursor-pointer items-center justify-center gap-2 rounded-xl border border-dashed border-cyan-300/35 bg-cyan-300/[0.06] px-3 py-3 text-xs font-semibold text-cyan-100 hover:bg-cyan-300/10" htmlFor="file-picker"><Upload size={14} /> {selectedFile ? selectedFile.name : 'Browse PDF, Excel, CSV, or Word'}<input id="file-picker" className="hidden" type="file" accept=".pdf,.xls,.xlsx,.csv,.doc,.docx,application/pdf,text/csv,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document" onChange={(event) => setSelectedFile(event.target.files?.[0] ?? null)} /></label>
@@ -348,32 +349,25 @@ export function IngestionPanel({ onRefresh, onConfigureDataSources, id, graphNod
             <input id="file-path" className={inputClass} value={filePath} onChange={(event) => setFilePath(event.target.value)} placeholder="C:\\data\\contracts.pdf" />
           </> : <>
             <div className="mt-3 flex items-center gap-2 rounded-xl border border-cyan-300/15 bg-cyan-300/[0.05] px-3 py-2 text-[10px] text-cyan-100"><Cloud size={14} /> Paste a publicly accessible shared link</div>
-            <input className={inputClass} value={remoteFileUrl} onChange={(event) => setRemoteFileUrl(event.target.value)} placeholder={fileSource === 'GOOGLE_DRIVE' ? 'https://drive.google.com/file/d/...' : 'https://www.dropbox.com/s/...'} aria-label={`${fileSource} shared file URL`} />
+            <input className={inputClass} type="url" value={remoteFileUrl} onChange={(event) => setRemoteFileUrl(event.target.value)} placeholder={fileSource === 'GOOGLE_DRIVE' ? 'https://drive.google.com/file/d/...' : fileSource === 'DROPBOX' ? 'https://www.dropbox.com/s/...' : 'https://example.com/files/orders.xlsx'} aria-label={`${fileSource} file URL`} />
             <input className={inputClass} value={remoteFileName} onChange={(event) => setRemoteFileName(event.target.value)} placeholder="File name with extension, e.g. orders.xlsx" aria-label="Shared file name with extension" />
           </>}
           <div className="mt-3 grid grid-cols-2 gap-2">
-            <button type="button" className={`${buttonClass} bg-[#1c4c67] text-cyan-100 hover:bg-[#25627d]`} disabled={Boolean(busy)} onClick={() => void syncFile('EXCEL')}>
+            <button type="button" className={`${buttonClass} bg-[#1c4c67] !text-white hover:bg-[#25627d]`} disabled={Boolean(busy)} onClick={() => void syncFile('EXCEL')}>
               {busy === 'EXCEL' ? <LoaderCircle size={14} className="animate-spin" /> : <FileSpreadsheet size={14} />} Excel
             </button>
-            <button type="button" className={`${buttonClass} bg-sky-700/80 text-sky-100 hover:bg-sky-600`} disabled={Boolean(busy)} onClick={() => void syncFile('CSV')}>
+            <button type="button" className={`${buttonClass} bg-sky-700/80 !text-white hover:bg-sky-600`} disabled={Boolean(busy)} onClick={() => void syncFile('CSV')}>
               {busy === 'CSV' ? <LoaderCircle size={14} className="animate-spin" /> : <FileSpreadsheet size={14} />} CSV
             </button>
-            <button type="button" className={`${buttonClass} bg-[#4d3b23] text-amber-100 hover:bg-[#6a502d]`} disabled={Boolean(busy)} onClick={() => void syncFile('PDF')}>
+            <button type="button" className={`${buttonClass} bg-[#4d3b23] !text-white hover:bg-[#6a502d]`} disabled={Boolean(busy)} onClick={() => void syncFile('PDF')}>
               {busy === 'PDF' ? <LoaderCircle size={14} className="animate-spin" /> : <FileText size={14} />} PDF
             </button>
-            <button type="button" className={`${buttonClass} bg-blue-700/80 text-blue-100 hover:bg-blue-600`} disabled={Boolean(busy)} onClick={() => void syncFile('WORD')}>
+            <button type="button" className={`${buttonClass} bg-blue-700/80 !text-white hover:bg-blue-600`} disabled={Boolean(busy)} onClick={() => void syncFile('WORD')}>
               {busy === 'WORD' ? <LoaderCircle size={14} className="animate-spin" /> : <FileText size={14} />} Word
             </button>
           </div>
-          <button type="button" className={`${buttonClass} mt-2 border border-white/10 text-slate-300 hover:bg-white/5`} disabled={Boolean(busy)} onClick={() => void syncSap()}>
-            {busy === 'SAP' ? <LoaderCircle size={14} className="animate-spin" /> : <Database size={14} />} Sync SAP sandbox <ArrowUpRight size={13} className="ml-auto text-slate-500" />
-          </button>
-          {sapStatus.state !== 'idle' && <div className={`mt-2 flex items-start gap-2 rounded-xl border px-3 py-2.5 text-xs leading-5 ${sapStatus.state === 'error' ? 'border-rose-300/30 bg-rose-300/10 text-rose-100' : sapStatus.state === 'success' ? 'border-emerald-300/30 bg-emerald-300/10 text-emerald-100' : 'border-cyan-300/30 bg-cyan-300/10 text-cyan-100'}`} role={sapStatus.state === 'error' ? 'alert' : 'status'} aria-live="polite">
-            {sapStatus.state === 'syncing' ? <LoaderCircle size={14} className="mt-0.5 shrink-0 animate-spin" /> : sapStatus.state === 'error' ? <AlertCircle size={14} className="mt-0.5 shrink-0" /> : <CheckCircle2 size={14} className="mt-0.5 shrink-0" />}
-            <span><strong className="font-semibold">{sapStatus.state === 'syncing' ? 'SAP sync in progress' : sapStatus.state === 'error' ? 'SAP sync failed' : 'SAP sync complete'}</strong><span className="block opacity-90">{sapStatus.message}</span></span>
-          </div>}
           </div>
-          <div className={`mt-6 border-t border-white/10 pt-5 ${hubTab === 'databases' || hubTab === 'warehouses' ? '' : 'hidden'}`}>
+          <div className={`mt-6 border-t border-white/10 pt-5 ${hubTab === 'databases' ? '' : 'hidden'}`}>
             <div className="mb-3 flex items-center gap-2">
               <Database size={15} className="text-indigo-300" />
               <h2 className="text-[11px] font-bold uppercase tracking-[0.2em] text-slate-300">Database &amp; Data Warehouse Sync</h2>
@@ -426,6 +420,14 @@ export function IngestionPanel({ onRefresh, onConfigureDataSources, id, graphNod
           <div className={`mt-2 ${hubTab === 'business' ? '' : 'hidden'}`}>
             <div className="mb-4 flex flex-wrap items-center justify-between gap-3"><div className="flex items-center gap-2"><Database size={15} className="text-emerald-300" /><div><h2 className="text-[11px] font-bold uppercase tracking-[0.2em] text-slate-300">CRM &amp; ERP connections</h2><p className="mt-1 text-[10px] text-slate-500">Sync uses the active saved configuration.</p></div></div><button type="button" onClick={() => { setHubOpen(false); onConfigureDataSources(); }} className="rounded-md border border-cyan-300/25 px-2.5 py-1.5 text-[10px] font-bold text-cyan-200 hover:bg-cyan-300/10">Configure connections</button></div>
             <div className="grid gap-3 sm:grid-cols-2">
+              <div className="rounded-xl border border-white/10 bg-white/[0.03] p-3">
+                <p className="text-xs font-semibold text-slate-100">SAP</p>
+                <p className="mt-1 text-[10px] text-slate-500">ERP sandbox records</p>
+                <button type="button" disabled={Boolean(busy)} onClick={() => void syncSap()} className={`${buttonClass} mt-3 border border-white/10 text-slate-200 hover:bg-white/5`}>
+                  {busy === 'SAP' ? <LoaderCircle size={14} className="animate-spin" /> : <Database size={14} />} Sync SAP <ArrowUpRight size={13} className="ml-auto text-slate-500" />
+                </button>
+                {sapStatus.state !== 'idle' && <p className={`mt-2 text-[10px] leading-4 ${sapStatus.state === 'error' ? 'text-rose-700' : sapStatus.state === 'success' ? 'text-emerald-700' : 'text-slate-500'}`} role={sapStatus.state === 'error' ? 'alert' : 'status'} aria-live="polite">{sapStatus.message}</p>}
+              </div>
               {([
                 ['hubspot', 'HubSpot', 'CRM contacts, companies, deals'],
                 ['monday', 'monday.com', 'Items from a configured board'],
@@ -446,11 +448,11 @@ export function IngestionPanel({ onRefresh, onConfigureDataSources, id, graphNod
           <div className={`mt-5 border-t border-white/10 pt-5 ${hubTab === 'files' ? '' : 'hidden'}`}>
             <div className="mb-3 flex items-center justify-between gap-3">
               <div><p className="text-xs font-semibold text-slate-300">Schema drift check</p><p className="mt-1 text-[10px] leading-4 text-slate-500">Compare a source sample with an existing entity type.</p></div>
-              <span className="rounded-full border border-fuchsia-300/20 bg-fuchsia-300/10 px-2 py-1 text-[9px] font-bold uppercase tracking-[0.12em] text-fuchsia-200">Auto-heal &ge; 0.85</span>
+              <span className="rounded-full border border-fuchsia-300/30 bg-fuchsia-50 px-2 py-1 text-[9px] font-bold uppercase tracking-[0.12em] text-fuchsia-800">Auto-heal &ge; 0.85</span>
             </div>
             <input className={inputClass} value={driftTargetEntity} onChange={(event) => setDriftTargetEntity(event.target.value)} placeholder="Target entity, e.g. Product" aria-label="Schema drift target entity" />
             <textarea className={`${inputClass} min-h-24 resize-y font-mono text-[11px]`} value={driftSample} onChange={(event) => setDriftSample(event.target.value)} aria-label="Incoming schema sample" />
-            <button type="button" className={`${buttonClass} mt-2 border border-fuchsia-300/30 text-fuchsia-200 hover:bg-fuchsia-300/10`} disabled={Boolean(busy) || !driftTargetEntity.trim()} onClick={() => void checkSchemaDrift()}>
+            <button type="button" className={`${buttonClass} mt-2 border border-fuchsia-300/40 text-fuchsia-800 hover:bg-fuchsia-50`} disabled={Boolean(busy) || !driftTargetEntity.trim()} onClick={() => void checkSchemaDrift()}>
               {busy === 'drift' ? <LoaderCircle size={14} className="animate-spin" /> : <RefreshCw size={14} />} Check schema drift
             </button>
           </div>

@@ -1,4 +1,6 @@
 import path from 'node:path';
+import { lookup } from 'node:dns/promises';
+import { isIP } from 'node:net';
 import { Router } from 'express';
 import { z } from 'zod';
 import multer from 'multer';
@@ -13,6 +15,7 @@ import { executeLocalGraphUpdate, executeWriteBackAction } from '../services/act
 import { syncSapSandbox } from '../services/sapService.js';
 import { parseUploadedFile } from '../services/fileIngestionService.js';
 import { recordSyncAudit } from '../services/syncAuditService.js';
+import { getAutoLinkedRelationshipStats, linkConfiguredRecords } from '../services/crossSourceLinkerService.js';
 const router = Router();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 25 * 1024 * 1024 } });
 const primitive = z.union([z.string(), z.number(), z.boolean(), z.null()]);
@@ -25,7 +28,7 @@ const ingestFileSchema = z.object({
     targetEntity: z.string().trim().min(1).optional()
 }).strict();
 const uploadFileSchema = z.object({
-    source: z.enum(['LOCAL', 'GOOGLE_DRIVE', 'DROPBOX']).default('LOCAL'),
+    source: z.enum(['LOCAL', 'GOOGLE_DRIVE', 'DROPBOX', 'WEBSITE']).default('LOCAL'),
     remoteUrl: z.string().url().optional(),
     fileName: z.string().trim().min(1).optional(),
     domain: domainSchema.default('CUSTOM'),
@@ -40,7 +43,7 @@ const smeNodeSchema = z.object({
     }).strict(),
     domain: domainSchema.default('CUSTOM'),
     secondaryLabels: z.array(z.string()).default([]),
-    sourceSystem: z.enum(['ERP', 'CRM', 'EXCEL', 'CSV', 'PDF', 'WORD', 'SME_INPUT']).default('SME_INPUT'),
+    sourceSystem: z.enum(['ERP', 'CRM', 'EXCEL', 'CSV', 'PDF', 'WORD', 'SME_INPUT', 'DATABRICKS', 'SNOWFLAKE', 'POSTGRES', 'SOP']).default('SME_INPUT'),
     properties: primitiveDictionary.default({}),
     createdAt: z.string().trim().min(1).optional(),
     validFrom: z.string().datetime().optional(),
@@ -70,10 +73,26 @@ const smeEntitySchema = z.object({
     message: 'Provide exactly one of node or edge.'
 });
 const errorMessage = (error) => error instanceof Error ? error.message : 'Request failed.';
+const linkIngestedNodes = async (nodes) => {
+    const counts = {};
+    const byLabel = new Map();
+    for (const node of nodes) {
+        byLabel.set(node.type.label, [...(byLabel.get(node.type.label) ?? []), { ...node.properties, id: node.id }]);
+    }
+    for (const [label, records] of byLabel) {
+        const linked = await linkConfiguredRecords(records, label);
+        for (const [relationshipType, count] of Object.entries(linked)) {
+            counts[relationshipType] = (counts[relationshipType] ?? 0) + count;
+        }
+    }
+    return counts;
+};
 const sharedDownloadUrl = (source, value) => {
     const url = new URL(value);
-    if (url.protocol !== 'https:')
-        throw new Error('Shared file links must use HTTPS.');
+    if (url.protocol !== 'https:' || url.username || url.password)
+        throw new Error('File links must use HTTPS and cannot contain credentials.');
+    if (source === 'WEBSITE')
+        return url;
     if (source === 'GOOGLE_DRIVE') {
         if (!['drive.google.com', 'docs.google.com'].includes(url.hostname))
             throw new Error('Use a Google Drive or Docs shared link.');
@@ -84,6 +103,77 @@ const sharedDownloadUrl = (source, value) => {
         throw new Error('Use a Dropbox shared link.');
     url.searchParams.set('dl', '1');
     return url;
+};
+const isPublicAddress = (address) => {
+    if (isIP(address) === 4) {
+        const octets = address.split('.').map(Number);
+        const [first, second] = octets;
+        return !(first === 0 || first === 10 || first === 127 || first >= 224
+            || (first === 100 && second >= 64 && second <= 127)
+            || (first === 169 && second === 254)
+            || (first === 172 && second >= 16 && second <= 31)
+            || (first === 192 && second === 168)
+            || (first === 192 && second === 0 && octets[2] === 0)
+            || (first === 192 && second === 0 && octets[2] === 2)
+            || (first === 198 && (second === 18 || second === 19))
+            || (first === 198 && second === 51 && octets[2] === 100)
+            || (first === 203 && second === 0 && octets[2] === 113));
+    }
+    if (isIP(address) === 6) {
+        const normalized = address.toLowerCase();
+        return (normalized.startsWith('2') || normalized.startsWith('3'))
+            && !normalized.startsWith('2001:db8:')
+            && !normalized.startsWith('2001:0:');
+    }
+    return false;
+};
+const assertPublicWebsite = async (url) => {
+    if (url.protocol !== 'https:' || url.username || url.password)
+        throw new Error('Website file URLs must use HTTPS and cannot contain credentials.');
+    const hostname = url.hostname.replace(/^\[|\]$/g, '').toLowerCase();
+    if (hostname === 'localhost' || hostname.endsWith('.localhost') || hostname.endsWith('.local'))
+        throw new Error('Website file URLs must use a public hostname.');
+    const addresses = isIP(hostname) ? [{ address: hostname }] : await lookup(hostname, { all: true, verbatim: true });
+    if (addresses.length === 0 || addresses.some(({ address }) => !isPublicAddress(address)))
+        throw new Error('Website file URLs must resolve only to public IP addresses.');
+};
+const downloadWebsiteFile = async (initialUrl) => {
+    let url = initialUrl;
+    for (let redirectCount = 0; redirectCount <= 5; redirectCount += 1) {
+        await assertPublicWebsite(url);
+        const response = await fetch(url, { redirect: 'manual' });
+        if (![301, 302, 303, 307, 308].includes(response.status))
+            return { response, url };
+        const location = response.headers.get('location');
+        if (!location || redirectCount === 5)
+            throw new Error('The website file URL redirected too many times or had an invalid redirect.');
+        await response.body?.cancel();
+        url = new URL(location, url);
+    }
+    throw new Error('Unable to download the website file.');
+};
+const readRemoteFile = async (response) => {
+    const maxBytes = 25 * 1024 * 1024;
+    const contentLength = Number(response.headers.get('content-length') ?? 0);
+    if (contentLength > maxBytes)
+        throw new Error('The shared file exceeds the 25 MB upload limit.');
+    if (!response.body)
+        throw new Error('The shared file response was empty.');
+    const reader = response.body.getReader();
+    const chunks = [];
+    let totalBytes = 0;
+    while (true) {
+        const { done, value } = await reader.read();
+        if (done)
+            break;
+        totalBytes += value.byteLength;
+        if (totalBytes > maxBytes) {
+            await reader.cancel();
+            throw new Error('The shared file exceeds the 25 MB upload limit.');
+        }
+        chunks.push(value);
+    }
+    return Buffer.concat(chunks);
 };
 const fileNameFromUrl = (url) => {
     const candidate = path.basename(url.pathname);
@@ -222,8 +312,9 @@ router.post('/ingest/file', async (request, response) => {
         const graph = await extractOntologyFromText(rawText, domain);
         const nodes = graph.nodes.map((node) => ({ ...node, domain, sourceSystem: node.sourceSystem ?? detectedSourceType }));
         await persistGraphToNeo4j(nodes, graph.edges);
+        const autoLinked = await linkIngestedNodes(nodes);
         await recordSyncAudit({ sourceType: detectedSourceType, sourceReference: filePath, fileName: path.basename(filePath), domain, rowCount: Array.isArray(parsedSource) ? parsedSource.length : 1, nodeCount: nodes.length, edgeCount: graph.edges.length, status: 'SUCCEEDED', startedAt, completedAt: new Date().toISOString() });
-        response.status(201).json({ sourceType: detectedSourceType, domain, schemaDrift, ...graph, nodes: redactNodeProperties(nodes, getUserRole(request)) });
+        response.status(201).json({ sourceType: detectedSourceType, domain, schemaDrift, autoLinked, ...graph, nodes: redactNodeProperties(nodes, getUserRole(request)) });
     }
     catch (error) {
         await recordSyncAudit({ sourceType: detectedSourceType, sourceReference: filePath, fileName: path.basename(filePath), domain, rowCount: 0, nodeCount: 0, edgeCount: 0, status: 'FAILED', startedAt, completedAt: new Date().toISOString(), errorMessage: errorMessage(error) });
@@ -251,15 +342,14 @@ router.post('/ingest/upload', upload.single('file'), async (request, response) =
             if (!parsedRequest.data.remoteUrl)
                 throw new Error('Provide a shared file link.');
             const downloadUrl = sharedDownloadUrl(parsedRequest.data.source, parsedRequest.data.remoteUrl);
-            const remoteResponse = await fetch(downloadUrl);
+            const { response: remoteResponse, url: resolvedDownloadUrl } = parsedRequest.data.source === 'WEBSITE'
+                ? await downloadWebsiteFile(downloadUrl)
+                : { response: await fetch(downloadUrl), url: downloadUrl };
             if (!remoteResponse.ok)
                 throw new Error(`Unable to download shared file (${remoteResponse.status}).`);
-            const contentLength = Number(remoteResponse.headers.get('content-length') ?? 0);
-            if (contentLength > 25 * 1024 * 1024)
-                throw new Error('The shared file exceeds the 25 MB upload limit.');
-            buffer = Buffer.from(await remoteResponse.arrayBuffer());
+            buffer = await readRemoteFile(remoteResponse);
             const disposition = remoteResponse.headers.get('content-disposition')?.match(/filename="?([^";]+)"?/i)?.[1];
-            fileName = parsedRequest.data.fileName ?? disposition ?? fileNameFromUrl(downloadUrl);
+            fileName = parsedRequest.data.fileName ?? disposition ?? fileNameFromUrl(resolvedDownloadUrl);
             sourceReference = parsedRequest.data.source;
         }
         const parsedFile = await parseUploadedFile(buffer, fileName);
@@ -286,8 +376,9 @@ router.post('/ingest/upload', upload.single('file'), async (request, response) =
         const graph = await extractOntologyFromText(rawText, parsedRequest.data.domain);
         const nodes = graph.nodes.map((node) => ({ ...node, domain: parsedRequest.data.domain, sourceSystem: node.sourceSystem ?? parsedFile.sourceType }));
         await persistGraphToNeo4j(nodes, graph.edges);
+        const autoLinked = await linkIngestedNodes(nodes);
         await recordSyncAudit({ sourceType: parsedFile.sourceType, sourceReference: sourceReference, fileName, domain: parsedRequest.data.domain, rowCount: Array.isArray(parsedFile.parsedSource) ? parsedFile.parsedSource.length : 1, nodeCount: nodes.length, edgeCount: graph.edges.length, status: 'SUCCEEDED', startedAt, completedAt: new Date().toISOString() });
-        response.status(201).json({ source: sourceReference, fileName, sourceType: parsedFile.sourceType, domain: parsedRequest.data.domain, schemaDrift, ...graph, nodes: redactNodeProperties(nodes, getUserRole(request)) });
+        response.status(201).json({ source: sourceReference, fileName, sourceType: parsedFile.sourceType, domain: parsedRequest.data.domain, schemaDrift, autoLinked, ...graph, nodes: redactNodeProperties(nodes, getUserRole(request)) });
     }
     catch (error) {
         await recordSyncAudit({ sourceType: parsedRequest.data.domain === 'CUSTOM' ? 'UPLOAD' : 'UPLOAD', sourceReference: parsedRequest.data.source, fileName: parsedRequest.data.fileName, domain: parsedRequest.data.domain, rowCount: 0, nodeCount: 0, edgeCount: 0, status: 'FAILED', startedAt, completedAt: new Date().toISOString(), errorMessage: errorMessage(error) });
@@ -310,23 +401,25 @@ router.post('/integrations/sap/sync', async (_request, response) => {
 router.get('/ontology/graph', async (request, response) => {
     try {
         const asOfTimestamp = typeof request.query.asOfTimestamp === 'string' ? request.query.asOfTimestamp : undefined;
-        const domain = typeof request.query.domain === 'string' ? domainSchema.safeParse(request.query.domain) : undefined;
-        if (domain && !domain.success) {
-            response.status(400).json({ error: 'domain must be a supported domain context.', details: domain.error.flatten() });
-            return;
-        }
         if (asOfTimestamp && Number.isNaN(Date.parse(asOfTimestamp))) {
             response.status(400).json({ error: 'asOfTimestamp must be a valid ISO date.' });
             return;
         }
-        const selectedDomain = domain?.success ? domain.data : undefined;
         const graph = asOfTimestamp
-            ? await queryGraphAtTimestamp(new Date(asOfTimestamp).toISOString(), selectedDomain)
-            : await queryGraphFromNeo4j(selectedDomain);
+            ? await queryGraphAtTimestamp(new Date(asOfTimestamp).toISOString())
+            : await queryGraphFromNeo4j();
         response.json({ ...graph, nodes: redactNodeProperties(graph.nodes, getUserRole(request)) });
     }
     catch (error) {
         response.status(503).json({ error: 'Unable to query ontology graph.', message: errorMessage(error) });
+    }
+});
+router.get('/relationships/auto-linked-stats', async (_request, response) => {
+    try {
+        response.json({ stats: await getAutoLinkedRelationshipStats() });
+    }
+    catch (error) {
+        response.status(503).json({ error: 'Unable to load auto-linked relationship statistics.', message: errorMessage(error) });
     }
 });
 router.post('/sme/entity', async (request, response) => {

@@ -81,6 +81,18 @@ export const linkConfiguredRecords = async (
   return counts;
 };
 
+export const linkConfiguredRecordsBestEffort = async (
+  records: Record<string, unknown>[],
+  sourceNodeLabel: string
+): Promise<Record<string, number>> => {
+  try {
+    return await linkConfiguredRecords(records, sourceNodeLabel);
+  } catch (error) {
+    console.warn(`Source data was synced, but auto-linking ${sourceNodeLabel} records failed: ${error instanceof Error ? error.message : String(error)}`);
+    return {};
+  }
+};
+
 export const getAutoLinkedRelationshipStats = async (): Promise<Array<{
   linkedFromSource: string;
   relationshipType: string;
