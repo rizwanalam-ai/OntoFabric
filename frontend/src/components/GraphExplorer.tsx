@@ -30,6 +30,7 @@ type ExplorerNodeData = {
   clusterMembers?: GraphNode[];
   highlighted: boolean;
   dimmed: boolean;
+  isHub?: boolean;
   toggleCluster?: () => void;
 };
 
@@ -65,7 +66,7 @@ function OntologyNode({ data }: NodeProps<Node<ExplorerNodeData>>) {
   const label = graphNode?.type.label ?? members?.[0]?.type.label ?? 'Group';
 
   return (
-    <div className="min-w-[190px] max-w-[235px] rounded-2xl border bg-[#101a2c]/95 px-4 py-3 shadow-2xl shadow-black/30 transition-transform duration-200 hover:-translate-y-1" style={{ borderColor: data.highlighted ? '#f5f06a' : '#22d3eecc', opacity: data.dimmed ? 0.25 : 1, boxShadow: data.highlighted ? '0 0 0 3px rgba(245, 240, 106, 0.24), 0 14px 38px rgba(0, 0, 0, 0.24)' : '0 14px 38px rgba(0, 0, 0, 0.24), 0 0 0 1px rgba(34, 211, 238, 0.18)' }}>
+    <div className="min-w-[190px] max-w-[235px] rounded-2xl border bg-[#101a2c]/95 px-4 py-3 shadow-2xl shadow-black/30 transition-transform duration-200 hover:-translate-y-1" style={{ borderColor: data.highlighted ? '#f5f06a' : sourceStyle.accent, opacity: data.dimmed ? 0.25 : 1, boxShadow: data.highlighted ? '0 0 0 3px rgba(245, 240, 106, 0.24), 0 14px 38px rgba(0, 0, 0, 0.24)' : data.isHub ? `0 0 0 4px ${sourceStyle.tint}, 0 14px 38px rgba(0, 0, 0, 0.24)` : '0 14px 38px rgba(0, 0, 0, 0.24)' }}>
       <Handle type="target" position={Position.Left} className="!h-2 !w-2 !border-2 !border-[#101a2c] !bg-cyan-300" />
       <div className="mb-3 flex items-start justify-between gap-3"><span className="text-[10px] font-bold uppercase tracking-[0.18em] text-cyan-300">{label}</span><span className="rounded-full px-2 py-1 text-[9px] font-bold tracking-[0.12em]" style={{ color: sourceStyle.accent, backgroundColor: sourceStyle.tint }}>{members ? `${members.length} grouped` : sourceStyle.label}</span></div>
       <p className="truncate text-sm font-semibold text-slate-100">{graphNode ? String(graphNode.properties.name ?? graphNode.id) : `${label} cluster`}</p>
@@ -94,10 +95,20 @@ const fitViewOptions = { padding: 0.3, duration: 300 };
 
 const layoutNodes = (nodes: Node<ExplorerNodeData>[], edges: Edge[], layout: LayoutMode): Node<ExplorerNodeData>[] => {
   if (layout === 'force') {
-    const radius = Math.max(360, Math.sqrt(Math.max(1, nodes.length)) * 190);
-    return nodes.map((node, index) => {
-      const angle = (index / Math.max(1, nodes.length)) * Math.PI * 2;
-      return { ...node, position: { x: Math.cos(angle) * radius + 420, y: Math.sin(angle) * radius + 300 } };
+    const degrees = new Map<string, number>();
+    edges.forEach((edge) => {
+      degrees.set(edge.source, (degrees.get(edge.source) ?? 0) + 1);
+      degrees.set(edge.target, (degrees.get(edge.target) ?? 0) + 1);
+    });
+    const hub = nodes.reduce<Node<ExplorerNodeData> | undefined>((current, node) =>
+      (degrees.get(node.id) ?? 0) > (degrees.get(current?.id ?? '') ?? 0) ? node : current, undefined);
+    const spokes = hub ? nodes.filter((node) => node.id !== hub.id) : nodes;
+    const radius = Math.max(340, Math.sqrt(Math.max(1, spokes.length)) * 105);
+    return nodes.map((node) => {
+      if (hub && node.id === hub.id) return { ...node, data: { ...node.data, isHub: true }, position: { x: -nodeWidth / 2, y: -nodeHeight / 2 } };
+      const index = spokes.findIndex((spoke) => spoke.id === node.id);
+      const angle = (index / Math.max(1, spokes.length)) * Math.PI * 2;
+      return { ...node, position: { x: Math.cos(angle) * radius - nodeWidth / 2, y: Math.sin(angle) * radius - nodeHeight / 2 } };
     });
   }
   const graph = new dagre.graphlib.Graph().setDefaultEdgeLabel(() => ({}));
@@ -120,7 +131,13 @@ export function GraphExplorer({ nodes, edges, onNodeClick, timeline, highlighted
 
   const flowModel = useMemo(() => {
     const grouped = new Map<string, GraphNode[]>();
-    nodes.forEach((node) => { if ((connectedCounts.get(node.id) ?? 0) > 5) grouped.set(node.type.id, [...(grouped.get(node.type.id) ?? []), node]); });
+    const nodesByType = new Map<string, GraphNode[]>();
+    nodes.forEach((node) => nodesByType.set(node.type.id, [...(nodesByType.get(node.type.id) ?? []), node]));
+    nodes.forEach((node) => {
+      if ((connectedCounts.get(node.id) ?? 0) > 5 || (nodesByType.get(node.type.id)?.length ?? 0) >= 12) {
+        grouped.set(node.type.id, nodesByType.get(node.type.id) ?? []);
+      }
+    });
     const clusterByNode = new Map<string, string>();
     const clusters = [...grouped.entries()].filter(([, members]) => members.length > 1);
     clusters.forEach(([typeId, members]) => members.forEach((member) => clusterByNode.set(member.id, `cluster-${typeId}`)));

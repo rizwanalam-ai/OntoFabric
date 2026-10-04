@@ -228,28 +228,40 @@ export const persistGraphToNeo4j = async (nodes: GraphNode[], edges: GraphEdge[]
         };
       });
       if (nodeBatch.length > 0) {
-        await transaction.run(
-          `UNWIND $batch AS row
-           MERGE (n:Entity {id: row.id})
-           SET n += row.properties,
-             n.id = row.id,
-             n.typeId = row.typeId,
-             n.typeLabel = row.typeLabel,
-             n.domain = row.domain,
-             n.secondaryLabels = row.secondaryLabels,
-             n.sourceSystem = row.sourceSystem,
-             n.typeAttributesJson = row.typeAttributesJson,
-             n.createdAt = row.createdAt,
-             n.validFrom = row.validFrom,
-             n.validTo = row.validTo,
-             n.transactionFrom = row.transactionFrom,
-             n.transactionTo = row.transactionTo,
-             n.provenanceJson = row.provenanceJson
-           WITH n, row
-           CALL apoc.create.addLabels(n, [row.domainLabel, row.typeLabel] + row.secondaryLabels) YIELD node
-           RETURN count(node)`,
-          { batch: nodeBatch }
-        );
+        const labelGroups = new Map<string, typeof nodeBatch>();
+        for (const row of nodeBatch) {
+          const labels = [...new Set([row.domainLabel, row.typeLabel, ...row.secondaryLabels])];
+          const key = JSON.stringify(labels);
+          const group = labelGroups.get(key) ?? [];
+          group.push(row);
+          labelGroups.set(key, group);
+        }
+
+        for (const [labelsJson, batch] of labelGroups) {
+          const labels = JSON.parse(labelsJson) as string[];
+          const labelSet = labels.map((label) => `:\`${label}\``).join('');
+          await transaction.run(
+            `UNWIND $batch AS row
+             MERGE (n:Entity {id: row.id})
+             SET n += row.properties,
+               n.id = row.id,
+               n.typeId = row.typeId,
+               n.typeLabel = row.typeLabel,
+               n.domain = row.domain,
+               n.secondaryLabels = row.secondaryLabels,
+               n.sourceSystem = row.sourceSystem,
+               n.typeAttributesJson = row.typeAttributesJson,
+               n.createdAt = row.createdAt,
+               n.validFrom = row.validFrom,
+               n.validTo = row.validTo,
+               n.transactionFrom = row.transactionFrom,
+               n.transactionTo = row.transactionTo,
+               n.provenanceJson = row.provenanceJson
+             SET n${labelSet}
+             RETURN count(n)`,
+            { batch }
+          );
+        }
       }
 
       const edgeBatch = edges.map((edge) => ({
@@ -299,9 +311,9 @@ export const linkMatchingProducts = async (nodeIds: string[]): Promise<void> => 
             CASE WHEN a.id < b.id THEN b ELSE a END AS target, key
        MERGE (source)-[r:SAME_AS {id: 'SAME_AS:' + source.id + '|' + target.id}]->(target)
        SET r.relationship = 'SAME_AS', r.matchedBy = key, r.confidence = 1.0,
-           r.validFrom = coalesce(r.validFrom, source.validFrom, datetime().toString()),
+           r.validFrom = coalesce(r.validFrom, source.validFrom, toString(datetime())),
            r.validTo = coalesce(r.validTo, source.validTo, '9999-12-31T23:59:59.999Z'),
-           r.transactionFrom = coalesce(r.transactionFrom, source.transactionFrom, datetime().toString()),
+           r.transactionFrom = coalesce(r.transactionFrom, source.transactionFrom, toString(datetime())),
            r.transactionTo = coalesce(r.transactionTo, source.transactionTo, '9999-12-31T23:59:59.999Z')
        RETURN count(r)`,
       { nodeIds }

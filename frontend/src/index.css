@@ -125,6 +125,10 @@ body {
 }
 
 #root .react-flow {
+  width: 100% !important;
+  height: 100% !important;
+  min-width: 0;
+  min-height: 600px;
   background-color: #ffffff !important;
   background-image: none !important;
 }

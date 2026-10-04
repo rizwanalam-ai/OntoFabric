@@ -25,7 +25,7 @@ const normalizeRelationalValue = (value: unknown): unknown => {
 const sanitizeRecordsForNeo4j = (records: Record<string, unknown>[]): Record<string, unknown>[] =>
   records.map((record) => Object.fromEntries(Object.entries(record).map(([key, value]) => [key, normalizeRelationalValue(value)])));
 
-const nodeCypher = `
+const nodeCypher = (domain: string, entityLabel: string): string => `
   UNWIND $batch AS row
   MERGE (n:Entity {id: toString(row[$pk])})
   SET n += row,
@@ -42,9 +42,8 @@ const nodeCypher = `
   n.transactionTo = $temporalEnd,
   n.provenanceJson = $provenanceJson,
   n.updatedAt = timestamp()
-  WITH n, row
-  CALL apoc.create.addLabels(n, [$domain, $entityLabel]) YIELD node
-  RETURN count(node) AS count
+  SET n:\`${domain}\`:\`${entityLabel}\`
+  RETURN count(n) AS count
 `;
 
 export const syncRelationalTableToNeo4j = async (
@@ -62,7 +61,7 @@ export const syncRelationalTableToNeo4j = async (
   const sanitizedRecords = sanitizeRecordsForNeo4j(records);
   try {
     const result = await session.executeWrite(async (transaction) => {
-      const nodeResult = await transaction.run(nodeCypher, {
+      const nodeResult = await transaction.run(nodeCypher(domain, entityLabel), {
         batch: sanitizedRecords,
         pk: primaryKeyColumn,
         sourceType: payload.sourceType,
