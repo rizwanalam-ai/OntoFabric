@@ -11,6 +11,7 @@ import { getUserRole, redactNodeProperties } from '../middleware/abacMiddleware.
 import { callExcelParser, callPdfParser } from '../mcpClient.js';
 import {
   deleteGraphNode,
+  deleteGraphNodes,
   extractOntologyFromText,
   persistGraphToNeo4j,
   queryGraphAtTimestamp,
@@ -209,6 +210,10 @@ const localActionSchema = z.object({
   nodeId: z.string().trim().min(1),
   oldValues: z.record(z.unknown()).default({}),
   newValues: z.record(z.unknown())
+}).strict();
+const bulkDeleteNodesSchema = z.object({
+  ids: z.array(z.string().trim().min(1)).min(1).max(1000)
+    .refine((ids) => new Set(ids).size === ids.length, 'Entity IDs must be unique.')
 }).strict();
 
 router.post('/privacy/rehydrate', async (request, response) => {
@@ -429,6 +434,20 @@ router.get('/ontology/graph', async (request, response) => {
     response.json({ ...graph, nodes: redactNodeProperties(graph.nodes as GraphNode[], getUserRole(request)) });
   } catch (error) {
     response.status(503).json({ error: 'Unable to query ontology graph.', message: errorMessage(error) });
+  }
+});
+
+router.post('/ontology/nodes/bulk-delete', async (request, response) => {
+  const parsedRequest = bulkDeleteNodesSchema.safeParse(request.body);
+  if (!parsedRequest.success) {
+    response.status(400).json({ error: 'Invalid bulk-delete request.', details: parsedRequest.error.flatten() });
+    return;
+  }
+  try {
+    const deletedCount = await deleteGraphNodes(parsedRequest.data.ids);
+    response.json({ deletedCount });
+  } catch (error) {
+    response.status(503).json({ error: 'Unable to delete graph entities.', message: errorMessage(error) });
   }
 });
 

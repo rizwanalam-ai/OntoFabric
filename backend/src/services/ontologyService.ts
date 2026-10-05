@@ -336,6 +336,23 @@ export const deleteGraphNode = async (id: string): Promise<boolean> => {
   }
 };
 
+export const deleteGraphNodes = async (ids: string[]): Promise<number> => {
+  if (ids.length === 0) return 0;
+  const session = getNeo4jDriver().session();
+  try {
+    const result = await session.executeWrite((transaction) => transaction.run(
+      `UNWIND $ids AS id
+       MATCH (node:Entity {id: id})
+       DETACH DELETE node
+       RETURN count(node) AS deletedCount`,
+      { ids }
+    ));
+    return result.records[0]?.get('deletedCount').toNumber() ?? 0;
+  } finally {
+    await session.close();
+  }
+};
+
 export const queryGraphAtTimestamp = async (asOfDate: string): Promise<{ nodes: unknown[]; edges: unknown[] }> => {
   const session = getNeo4jDriver().session();
 

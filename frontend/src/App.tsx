@@ -77,6 +77,21 @@ export default function App() {
         : 'Unable to delete this entity.');
     }
   };
+  const deleteNodes = async (ids: string[]) => {
+    await api.post('/api/ontology/nodes/bulk-delete', { ids });
+    const deletedIds = new Set(ids);
+    setGraph((current) => ({
+      nodes: current.nodes.filter((node) => !deletedIds.has(node.id)),
+      edges: current.edges.filter((edge) => !deletedIds.has(edge.source) && !deletedIds.has(edge.target))
+    }));
+    if (selectedNode && deletedIds.has(selectedNode.id)) setSelectedNode(null);
+  };
+  const createRelationship = async (source: string, target: string, relationship: string) => {
+    const { data } = await api.post<{ edge: GraphEdge }>('/api/sme/entity', {
+      edge: { id: `REL-${crypto.randomUUID()}`, source, target, relationship, properties: {} }
+    });
+    setGraph((current) => ({ ...current, edges: [...current.edges, data.edge] }));
+  };
   const entityLabels = [...new Set(graph.nodes.map((node) => node.type.label))];
   const relationshipNames = [...new Set(graph.edges.map((edge) => edge.relationship))];
 
@@ -137,6 +152,8 @@ export default function App() {
               onNodeContextMenu={setLineageNode}
               onCreateEntity={() => setQuickAction('entity')}
               onAddRelationship={() => setQuickAction('relationship')}
+              onDeleteNodes={deleteNodes}
+              onCreateRelationship={createRelationship}
             />
             {isAssistantOpen && <GraphChatAssistant id="graph-assistant-panel" onHighlightNodes={setHighlightedNodeIds} />}
           </div>
