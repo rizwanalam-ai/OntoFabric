@@ -15,6 +15,7 @@ import { BusinessCockpit } from './components/BusinessCockpit';
 import { SchemaDesigner } from './components/SchemaDesigner';
 import { AiSettingsModal } from './components/AiSettingsModal';
 import { DataSourcesAdmin } from './components/DataSourcesAdmin';
+import { WorkspaceSearchModal } from './components/WorkspaceSearchModal';
 
 type GraphPayload = { nodes: GraphNode[]; edges: GraphEdge[] };
 type WorkspaceView = 'explorer' | 'approvals' | 'cockpit' | 'designer' | 'data-sources';
@@ -33,6 +34,7 @@ export default function App() {
   const [activeView, setActiveView] = useState<WorkspaceView>('explorer');
   const [quickAction, setQuickAction] = useState<'entity' | 'relationship' | null>(null);
   const [isAiSettingsOpen, setIsAiSettingsOpen] = useState(false);
+  const [isSearchOpen, setIsSearchOpen] = useState(false);
   const refreshGraph = async () => {
     try {
       setLoading(true);
@@ -51,6 +53,17 @@ export default function App() {
     void api.get<{ matches: PendingMatch[] }>('/api/resolution/pending')
       .then(({ data }) => setPendingMatches(data.matches))
       .catch(() => setPendingMatches([]));
+  }, []);
+
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k') {
+        event.preventDefault();
+        setIsSearchOpen((current) => !current);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
   }, []);
 
   const removePendingMatch = async (pendingId: string) => {
@@ -112,8 +125,24 @@ export default function App() {
           </div>
         </div>
         <nav className="flex items-center gap-2 text-xs text-blue-100">
-          <button type="button" aria-label="Search workspace" className="hidden rounded-xl p-2.5 transition hover:bg-white/10 hover:text-white sm:block"><Search size={17} /></button>
-          <button type="button" aria-label="Workspace settings" onClick={() => setIsAiSettingsOpen(true)} className="rounded-xl p-2.5 transition hover:bg-white/10 hover:text-white"><Settings2 size={17} /></button>
+          <button
+            type="button"
+            aria-label="Search workspace (Ctrl+K)"
+            title="Search workspace (Ctrl+K)"
+            onClick={() => setIsSearchOpen(true)}
+            className="flex items-center gap-1.5 rounded-xl p-2.5 transition hover:bg-white/10 hover:text-white"
+          >
+            <Search size={17} />
+          </button>
+          <button
+            type="button"
+            aria-label="Workspace settings"
+            title="Workspace settings"
+            onClick={() => setIsAiSettingsOpen(true)}
+            className="rounded-xl p-2.5 transition hover:bg-white/10 hover:text-white"
+          >
+            <Settings2 size={17} />
+          </button>
         </nav>
       </header>
       <nav className="border-b border-[#183c62] bg-[#0b3159] px-3 md:px-8" aria-label="Workspace sections">
@@ -166,6 +195,29 @@ export default function App() {
       {pendingAction && <ActionExecutionModal node={pendingAction.node} changedFields={pendingAction.changedFields} onClose={() => setPendingAction(null)} onLocalSave={() => { applyLocalChanges(); setPendingAction(null); }} onSyncSuccess={() => { applyLocalChanges(); }} />}
       <LineageInspectorModal node={lineageNode} onClose={() => setLineageNode(null)} />
       {isAiSettingsOpen && <AiSettingsModal onClose={() => setIsAiSettingsOpen(false)} />}
+      <WorkspaceSearchModal
+        isOpen={isSearchOpen}
+        onClose={() => setIsSearchOpen(false)}
+        nodes={graph.nodes}
+        edges={graph.edges}
+        onSelectNode={(node) => setSelectedNode(node)}
+        onHighlightNodes={(ids) => setHighlightedNodeIds(ids)}
+        onNavigateView={(view) => setActiveView(view)}
+        onOpenAssistant={() => setIsAssistantOpen(true)}
+        onOpenSourceSync={() => setIsSourceSyncOpen(true)}
+        onOpenAiSettings={() => setIsAiSettingsOpen(true)}
+        onRefreshGraph={refreshGraph}
+        onCreateEntity={() => {
+          setActiveView('explorer');
+          setIsSourceSyncOpen(true);
+          setQuickAction('entity');
+        }}
+        onCreateRelationship={() => {
+          setActiveView('explorer');
+          setIsSourceSyncOpen(true);
+          setQuickAction('relationship');
+        }}
+      />
     </main>
   );
 }
