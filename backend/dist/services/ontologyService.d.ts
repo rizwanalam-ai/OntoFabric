@@ -11,6 +11,8 @@ export declare const extractOntologyFromText: (rawText: string, domain: DomainCo
 }>;
 export declare const persistGraphToNeo4j: (nodes: GraphNode[], edges: GraphEdge[]) => Promise<void>;
 export declare const linkMatchingProducts: (nodeIds: string[]) => Promise<void>;
+export declare const deleteGraphNode: (id: string) => Promise<boolean>;
+export declare const deleteGraphNodes: (ids: string[]) => Promise<number>;
 export declare const queryGraphAtTimestamp: (asOfDate: string) => Promise<{
     nodes: unknown[];
     edges: unknown[];

@@ -1,26 +1,14 @@
-import { callCrmAccountStatusUpdate, callSapPurchaseOrderUpdate } from '../mcpClient.js';
 import { getNeo4jDriver } from './ontologyService.js';
-
-export type WriteBackActionResult = {
-  actionType: string;
-  status: 'SYNCED';
-  sourceSystem: 'SAP' | 'CRM';
-  result: unknown;
-};
 
 type ActionPayload = {
   nodeId?: string;
   userId?: string;
   oldValues?: Record<string, unknown>;
   newValues?: Record<string, unknown>;
-  orderId?: string;
-  accountId?: string;
-  status?: string;
-  updatedFields?: Record<string, unknown>;
 };
 
-const auditAction = async (actionType: string, payload: ActionPayload, sourceSystem: string): Promise<void> => {
-  const nodeId = payload.nodeId ?? payload.orderId ?? payload.accountId;
+const auditAction = async (payload: ActionPayload): Promise<void> => {
+  const nodeId = payload.nodeId;
   if (!nodeId) throw new Error('A target node ID is required for action auditing.');
   const session = getNeo4jDriver().session();
   try {
@@ -37,41 +25,15 @@ const auditAction = async (actionType: string, payload: ActionPayload, sourceSys
         userId: payload.userId ?? 'system-sme',
         nodeId,
         timestamp: new Date().toISOString(),
-        actionType,
-        sourceSystem,
+        actionType: 'local_graph_update',
+        sourceSystem: 'LOCAL',
         oldValues: JSON.stringify(payload.oldValues ?? {}),
-        newValues: JSON.stringify(payload.newValues ?? payload.updatedFields ?? {})
+        newValues: JSON.stringify(payload.newValues ?? {})
       }
     ));
   } finally {
     await session.close();
   }
-};
-
-export const executeWriteBackAction = async (actionType: string, payload: any): Promise<WriteBackActionResult> => {
-  const actionPayload = payload as ActionPayload;
-  let result: unknown;
-  let sourceSystem: 'SAP' | 'CRM';
-
-  switch (actionType) {
-    case 'update_sap_purchase_order': {
-      if (!actionPayload.orderId || !actionPayload.updatedFields) throw new Error('SAP purchase order updates require orderId and updatedFields.');
-      result = await callSapPurchaseOrderUpdate(actionPayload.orderId, actionPayload.updatedFields);
-      sourceSystem = 'SAP';
-      break;
-    }
-    case 'update_crm_account_status': {
-      if (!actionPayload.accountId || !actionPayload.status) throw new Error('CRM account updates require accountId and status.');
-      result = await callCrmAccountStatusUpdate(actionPayload.accountId, actionPayload.status);
-      sourceSystem = 'CRM';
-      break;
-    }
-    default:
-      throw new Error(`Unsupported write-back action: ${actionType}`);
-  }
-
-  await auditAction(actionType, actionPayload, sourceSystem);
-  return { actionType, status: 'SYNCED', sourceSystem, result };
 };
 
 export const executeLocalGraphUpdate = async (payload: any): Promise<{ actionType: 'local_graph_update'; status: 'SAVED' }> => {
@@ -88,6 +50,6 @@ export const executeLocalGraphUpdate = async (payload: any): Promise<{ actionTyp
   } finally {
     await session.close();
   }
-  await auditAction('local_graph_update', actionPayload, 'LOCAL');
+  await auditAction(actionPayload);
   return { actionType: 'local_graph_update', status: 'SAVED' };
 };

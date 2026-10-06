@@ -19,7 +19,7 @@ const graphNodeSchema = z.object({
     transactionTo: z.string(),
     provenance: z.object({
         sourceSystem: z.string(), rawSourceId: z.string(), filePath: z.string().optional(), lineNumber: z.number().int().optional(),
-        extractionTimestamp: z.string(), rawPayload: z.string().optional(), mcpTool: z.string().optional()
+        extractionTimestamp: z.string(), rawPayload: z.string().optional(), connector: z.string().optional()
     })
 });
 const asText = (value) => String(value ?? '').trim();

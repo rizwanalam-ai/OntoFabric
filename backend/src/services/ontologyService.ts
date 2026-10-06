@@ -22,7 +22,7 @@ const graphNodeSchema = z.object({
   transactionTo: z.string().datetime(),
   provenance: z.object({
     sourceSystem: z.string(), rawSourceId: z.string(), filePath: z.string().optional(),
-    lineNumber: z.number().int().optional(), extractionTimestamp: z.string(), rawPayload: z.string().optional(), mcpTool: z.string().optional()
+    lineNumber: z.number().int().optional(), extractionTimestamp: z.string(), rawPayload: z.string().optional(), connector: z.string().optional()
   })
 });
 const graphEdgeSchema = z.object({
@@ -92,7 +92,7 @@ export const extractOntologyFromText = async (rawText: string, domain: DomainCon
           content: [
             'Extract an enterprise ontology from the supplied text.',
             'Return only a JSON object with exactly two arrays: nodes and edges.',
-            'Each node must have id, type { id, label, attributes }, domain, secondaryLabels, sourceSystem, properties, createdAt, validFrom, validTo, transactionFrom, transactionTo, and provenance { sourceSystem, rawSourceId, filePath?, lineNumber?, extractionTimestamp, rawPayload?, mcpTool? }.',
+            'Each node must have id, type { id, label, attributes }, domain, secondaryLabels, sourceSystem, properties, createdAt, validFrom, validTo, transactionFrom, transactionTo, and provenance { sourceSystem, rawSourceId, filePath?, lineNumber?, extractionTimestamp, rawPayload?, connector? }.',
             'Each edge must have id, source, target, relationship, properties, validFrom, validTo, transactionFrom, and transactionTo.',
             'Use primitive values only in attributes, properties, and edge properties.',
             'Use sourceSystem SME_INPUT when the source cannot be inferred.',
@@ -177,7 +177,7 @@ const parseProvenance = (value: unknown, properties: Record<string, unknown>): N
   try {
     return z.object({
       sourceSystem: z.string(), rawSourceId: z.string(), filePath: z.string().optional(),
-      lineNumber: z.number().int().optional(), extractionTimestamp: z.string(), rawPayload: z.string().optional(), mcpTool: z.string().optional()
+      lineNumber: z.number().int().optional(), extractionTimestamp: z.string(), rawPayload: z.string().optional(), connector: z.string().optional()
     }).parse(JSON.parse(String(value)));
   } catch {
     return {
@@ -202,7 +202,7 @@ const provenanceDefaults = (node: GraphNode): NodeProvenance => ({
   lineNumber: node.provenance?.lineNumber,
   extractionTimestamp: node.provenance?.extractionTimestamp ?? new Date().toISOString(),
   rawPayload: node.provenance?.rawPayload,
-  mcpTool: node.provenance?.mcpTool
+  connector: node.provenance?.connector
 });
 
 export const persistGraphToNeo4j = async (nodes: GraphNode[], edges: GraphEdge[]): Promise<void> => {

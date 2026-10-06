@@ -192,7 +192,7 @@ export default function App() {
           : <BusinessCockpit nodes={graph.nodes} edges={graph.edges} onRefresh={refreshGraph} onOpenExplorer={() => setActiveView('explorer')} />}
       </div>
       <NodeDetailDrawer node={selectedNode} edges={graph.edges} onClose={() => setSelectedNode(null)} onViewLineage={(node) => setLineageNode(node)} onEditProperties={(node, changedFields) => setPendingAction({ node, changedFields })} onDeleteNode={deleteNode} />
-      {pendingAction && <ActionExecutionModal node={pendingAction.node} changedFields={pendingAction.changedFields} onClose={() => setPendingAction(null)} onLocalSave={() => { applyLocalChanges(); setPendingAction(null); }} onSyncSuccess={() => { applyLocalChanges(); }} />}
+      {pendingAction && <ActionExecutionModal node={pendingAction.node} changedFields={pendingAction.changedFields} onClose={() => setPendingAction(null)} onLocalSave={() => { applyLocalChanges(); setPendingAction(null); }} />}
       <LineageInspectorModal node={lineageNode} onClose={() => setLineageNode(null)} />
       {isAiSettingsOpen && <AiSettingsModal onClose={() => setIsAiSettingsOpen(false)} />}
       <WorkspaceSearchModal

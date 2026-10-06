@@ -2,21 +2,20 @@
 
 OntoFabric is an enterprise ontology and knowledge-graph workspace for combining operational data, curated subject-matter-expert input, entity resolution, and cross-domain business activity in one interface.
 
-The application has four workspace areas and an MCP integration layer:
+The application has four workspace areas and an AI extraction layer:
 
 - **Explorer**: inspect the ontology graph, ingest source files, add SME entities and relationships, and ask grounded graph questions.
 - **Schema Designer**: visually define entity types, properties, primary keys, required fields, and relationships before saving the schema to Neo4j.
 - **Approvals**: review and resolve possible duplicate entities before they become canonical graph data.
 - **Business Cockpit**: review graph coverage, connected entities, source-system representation, and recent sync health across domains.
-- **MCP source tools**: parse Excel/PDF files and retrieve ERP/CRM records through the Model Context Protocol server.
 
 ## Architecture
 
 ```text
-Excel / PDF / ERP / CRM / SME input
+Excel / PDF / Word / CSV / ERP / CRM / SME input
                 |
                 v
-       MCP server and backend APIs
+  Backend parsers and LLM extraction
                 |
                 v
               Neo4j
@@ -31,7 +30,6 @@ Excel / PDF / ERP / CRM / SME input
 | --- | --- |
 | `frontend` | React/Vite workspace, graph explorer, visual schema designer, source sync, approvals, and business cockpit |
 | `backend` | Express API, Neo4j persistence, ontology extraction, graph queries, and entity resolution |
-| `mcp-server` | Official MCP TypeScript SDK server for source parsing |
 | `shared` | Shared graph, ontology, temporal, S&OP, and primitive-property contracts |
 
 ## Prerequisites
@@ -173,14 +171,14 @@ Open **Source Sync** in the left sidebar:
 
 1. Enter a local file path.
 2. Choose **Excel** or **PDF**.
-3. The backend calls the matching MCP parser.
-4. Parsed content is converted into source-system-agnostic ontology nodes and relationships.
+3. The backend parses the file directly: PDF text, workbook sheets, CSV rows, or Word text.
+4. The configured LLM extracts source-system-agnostic ontology nodes and relationships from the parsed content.
 5. The extracted graph is persisted to Neo4j.
 6. The Explorer refreshes and displays the new data.
 
 For SAP, select **Sync SAP sandbox** instead. The configured SAP endpoint is fetched by the backend, records are normalized as ERP nodes, persisted to Neo4j, and included in the next graph refresh.
 
-Excel files are read across every worksheet. PDF files are converted to extracted text before ontology extraction.
+Excel files are read across every worksheet. PDF files with an extractable text layer are converted to text; scanned PDFs require OCR before ingestion. Word documents and CSV files are also parsed directly before LLM ontology extraction.
 
 ### 3. Add an SME entity
 
@@ -351,16 +349,6 @@ Set the generated value as `CONFIG_ENCRYPTION_KEY` in the backend environment. A
 
 The admin API is available at `GET/POST /api/admin/data-sources` and `PUT/PATCH/DELETE /api/admin/data-sources/:id`; it requires `DATA_SOURCE_ADMIN_KEY` in the `x-admin-key` header. Put the app behind HTTPS and a trusted authentication layer before exposing it outside a local development environment.
 
-## MCP Tools
-
-The MCP server uses the official TypeScript SDK and exposes these tools over stdio:
-
-| Tool | Use |
-| --- | --- |
-| `parse_excel_source` | Read every worksheet and return structured row objects |
-| `parse_pdf_source` | Extract text and page count from a PDF |
-The backend uses the file parsing tools through its MCP client. Graph records are created only from data you ingest or enter.
-
 ## Data and Governance Features
 
 - Shared graph contracts keep ingestion and graph-domain data source-system agnostic.
@@ -392,7 +380,7 @@ Check the selected domain and ingest data from **Explorer**. The cockpit shows g
 - Confirm the file path is readable by the backend process.
 - Confirm the selected source type matches the file.
 - For PDF input, verify the document contains extractable text.
-- Check backend logs for MCP parser or ontology extraction errors.
+- Check backend logs for file parser or ontology extraction errors.
 
 ### Graph assistant requests fail
 

@@ -32,7 +32,7 @@ export interface NodeProvenance {
   lineNumber?: number;
   extractionTimestamp: string;
   rawPayload?: string;
-  mcpTool?: string;
+  connector?: string;
 }
 
 export interface EntityType {

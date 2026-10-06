@@ -1,11 +1,9 @@
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
-import os from 'node:os';
 import path from 'node:path';
 
-import mammoth from 'mammoth';
+import pdfParse from 'pdf-parse';
 import * as XLSX from 'xlsx';
+import WordExtractor from 'word-extractor';
 
-import { callExcelParser, callPdfParser } from '../mcpClient.js';
 import type { SourceSystem } from '@ontofabric/shared/types.js';
 
 export type FileSourceType = Extract<SourceSystem, 'EXCEL' | 'CSV' | 'PDF' | 'WORD'>;
@@ -35,21 +33,26 @@ const parseCsv = (buffer: Buffer, fileName: string) => {
   return { filePath: fileName, sheets };
 };
 
-export const parseUploadedFile = async (buffer: Buffer, fileName: string): Promise<{ sourceType: FileSourceType; parsedSource: unknown; fileName: string }> => {
-  const sourceType = getFileSourceType(fileName);
+export const parseUploadedFile = async (
+  buffer: Buffer,
+  fileName: string,
+  sourceTypeOverride?: FileSourceType
+): Promise<{ sourceType: FileSourceType; parsedSource: unknown; fileName: string }> => {
+  const sourceType = sourceTypeOverride ?? getFileSourceType(fileName);
   if (sourceType === 'CSV') return { sourceType, parsedSource: parseCsv(buffer, fileName), fileName };
   if (sourceType === 'WORD') {
-    const result = await mammoth.extractRawText({ buffer });
-    return { sourceType, parsedSource: { filePath: fileName, text: result.value }, fileName };
+    const document = await new WordExtractor().extract(buffer);
+    return { sourceType, parsedSource: { filePath: fileName, text: document.getBody() }, fileName };
+  }
+  if (sourceType === 'PDF') {
+    const parsed = await pdfParse(buffer);
+    return { sourceType, parsedSource: { filePath: fileName, text: parsed.text, pageCount: parsed.numpages }, fileName };
   }
 
-  const tempDirectory = await mkdtemp(path.join(os.tmpdir(), 'ontofabric-upload-'));
-  const tempPath = path.join(tempDirectory, path.basename(fileName));
-  try {
-    await writeFile(tempPath, buffer);
-    const parsedSource = sourceType === 'PDF' ? await callPdfParser(tempPath) : await callExcelParser(tempPath);
-    return { sourceType, parsedSource, fileName };
-  } finally {
-    await rm(tempDirectory, { recursive: true, force: true });
-  }
+  const workbook = XLSX.read(buffer, { type: 'buffer' });
+  const sheets = workbook.SheetNames.map((sheetName) => ({
+    name: sheetName,
+    rows: XLSX.utils.sheet_to_json<Record<string, unknown>>(workbook.Sheets[sheetName], { defval: null })
+  }));
+  return { sourceType, parsedSource: { filePath: fileName, sheets }, fileName };
 };

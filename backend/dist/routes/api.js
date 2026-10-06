@@ -1,4 +1,5 @@
 import path from 'node:path';
+import { readFile } from 'node:fs/promises';
 import { lookup } from 'node:dns/promises';
 import { isIP } from 'node:net';
 import { Router } from 'express';
@@ -6,16 +7,15 @@ import { z } from 'zod';
 import multer from 'multer';
 import { DEFAULT_TEMPORAL_END } from '@ontofabric/shared/types.js';
 import { getUserRole, redactNodeProperties } from '../middleware/abacMiddleware.js';
-import { callExcelParser, callPdfParser } from '../mcpClient.js';
-import { extractOntologyFromText, persistGraphToNeo4j, queryGraphAtTimestamp, queryGraphFromNeo4j } from '../services/ontologyService.js';
+import { deleteGraphNode, deleteGraphNodes, extractOntologyFromText, persistGraphToNeo4j, queryGraphAtTimestamp, queryGraphFromNeo4j } from '../services/ontologyService.js';
 import { executeGroundedQuery } from '../services/graphRagService.js';
 import { rehydrateText } from '../services/anonymizationService.js';
 import { applyHealedMappings, detectSchemaDrift, resolveExpectedSchema } from '../services/schemaDriftService.js';
-import { executeLocalGraphUpdate, executeWriteBackAction } from '../services/actionEngineService.js';
+import { executeLocalGraphUpdate } from '../services/actionEngineService.js';
 import { syncSapSandbox } from '../services/sapService.js';
-import { parseUploadedFile } from '../services/fileIngestionService.js';
+import { getFileSourceType, parseUploadedFile } from '../services/fileIngestionService.js';
 import { recordSyncAudit } from '../services/syncAuditService.js';
-import { getAutoLinkedRelationshipStats, linkConfiguredRecords } from '../services/crossSourceLinkerService.js';
+import { getAutoLinkedRelationshipStats, linkConfiguredRecordsBestEffort } from '../services/crossSourceLinkerService.js';
 const router = Router();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 25 * 1024 * 1024 } });
 const primitive = z.union([z.string(), z.number(), z.boolean(), z.null()]);
@@ -52,7 +52,7 @@ const smeNodeSchema = z.object({
     transactionTo: z.string().datetime().optional(),
     provenance: z.object({
         sourceSystem: z.string(), rawSourceId: z.string(), filePath: z.string().optional(), lineNumber: z.number().int().optional(),
-        extractionTimestamp: z.string(), rawPayload: z.string().optional(), mcpTool: z.string().optional()
+        extractionTimestamp: z.string(), rawPayload: z.string().optional(), connector: z.string().optional()
     }).optional()
 }).strict();
 const smeEdgeSchema = z.object({
@@ -80,7 +80,7 @@ const linkIngestedNodes = async (nodes) => {
         byLabel.set(node.type.label, [...(byLabel.get(node.type.label) ?? []), { ...node.properties, id: node.id }]);
     }
     for (const [label, records] of byLabel) {
-        const linked = await linkConfiguredRecords(records, label);
+        const linked = await linkConfiguredRecordsBestEffort(records, label);
         for (const [relationshipType, count] of Object.entries(linked)) {
             counts[relationshipType] = (counts[relationshipType] ?? 0) + count;
         }
@@ -189,14 +189,14 @@ const rehydrateSchema = z.object({
     sanitizedText: z.string(),
     redactionId: z.string().min(1)
 }).strict();
-const actionSchema = z.object({
-    actionType: z.enum(['update_sap_purchase_order', 'update_crm_account_status']),
-    payload: z.record(z.unknown())
-}).strict();
 const localActionSchema = z.object({
     nodeId: z.string().trim().min(1),
     oldValues: z.record(z.unknown()).default({}),
     newValues: z.record(z.unknown())
+}).strict();
+const bulkDeleteNodesSchema = z.object({
+    ids: z.array(z.string().trim().min(1)).min(1).max(1000)
+        .refine((ids) => new Set(ids).size === ids.length, 'Entity IDs must be unique.')
 }).strict();
 router.post('/privacy/rehydrate', async (request, response) => {
     const parsedRequest = rehydrateSchema.safeParse(request.body);
@@ -209,21 +209,6 @@ router.post('/privacy/rehydrate', async (request, response) => {
     }
     catch (error) {
         response.status(403).json({ error: 'Rehydration is not authorized or the cache entry has expired.', message: errorMessage(error) });
-    }
-});
-router.post('/actions/write-back', async (request, response) => {
-    const parsedRequest = actionSchema.safeParse(request.body);
-    if (!parsedRequest.success) {
-        response.status(400).json({ error: 'Invalid write-back action request.', details: parsedRequest.error.flatten() });
-        return;
-    }
-    try {
-        const userId = request.header('x-user-id') ?? `role:${getUserRole(request)}`;
-        const result = await executeWriteBackAction(parsedRequest.data.actionType, { ...parsedRequest.data.payload, userId });
-        response.json(result);
-    }
-    catch (error) {
-        response.status(502).json({ error: 'Write-back action failed.', message: errorMessage(error) });
     }
 });
 router.post('/actions/local-update', async (request, response) => {
@@ -282,13 +267,11 @@ router.post('/ingest/file', async (request, response) => {
     }
     const { filePath, sourceType, targetEntity } = parsedRequest.data;
     const domain = queryDomain.success ? queryDomain.data : parsedRequest.data.domain ?? 'CUSTOM';
-    const detectedSourceType = sourceType
-        ?? (path.extname(filePath).toLowerCase() === '.pdf' ? 'PDF' : 'EXCEL');
+    const detectedSourceType = sourceType ?? getFileSourceType(filePath);
     const startedAt = new Date().toISOString();
     try {
-        const parsedSource = detectedSourceType === 'PDF'
-            ? await callPdfParser(filePath)
-            : await callExcelParser(filePath);
+        const parsedFile = await parseUploadedFile(await readFile(filePath), filePath, detectedSourceType);
+        const parsedSource = parsedFile.parsedSource;
         let sourceForExtraction = parsedSource;
         let schemaDrift;
         if (targetEntity) {
@@ -412,6 +395,33 @@ router.get('/ontology/graph', async (request, response) => {
     }
     catch (error) {
         response.status(503).json({ error: 'Unable to query ontology graph.', message: errorMessage(error) });
+    }
+});
+router.post('/ontology/nodes/bulk-delete', async (request, response) => {
+    const parsedRequest = bulkDeleteNodesSchema.safeParse(request.body);
+    if (!parsedRequest.success) {
+        response.status(400).json({ error: 'Invalid bulk-delete request.', details: parsedRequest.error.flatten() });
+        return;
+    }
+    try {
+        const deletedCount = await deleteGraphNodes(parsedRequest.data.ids);
+        response.json({ deletedCount });
+    }
+    catch (error) {
+        response.status(503).json({ error: 'Unable to delete graph entities.', message: errorMessage(error) });
+    }
+});
+router.delete('/ontology/nodes/:id', async (request, response) => {
+    try {
+        const deleted = await deleteGraphNode(request.params.id);
+        if (!deleted) {
+            response.status(404).json({ error: 'Graph entity not found.' });
+            return;
+        }
+        response.status(204).end();
+    }
+    catch (error) {
+        response.status(503).json({ error: 'Unable to delete graph entity.', message: errorMessage(error) });
     }
 });
 router.get('/relationships/auto-linked-stats', async (_request, response) => {

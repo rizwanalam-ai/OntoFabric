@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { domainSchemas } from '@ontofabric/shared/domainSchemas.js';
 import { DEFAULT_TEMPORAL_END } from '@ontofabric/shared/types.js';
 import { anonymizeText } from './anonymizationService.js';
-import { getAiClient, getAiModel } from './aiService.js';
+import { getAiClient, getAiModel, getAiProvider } from './aiService.js';
 const primitive = z.union([z.string(), z.number(), z.boolean(), z.null()]);
 const primitiveDictionary = z.record(primitive);
 const graphNodeSchema = z.object({
@@ -20,7 +20,7 @@ const graphNodeSchema = z.object({
     transactionTo: z.string().datetime(),
     provenance: z.object({
         sourceSystem: z.string(), rawSourceId: z.string(), filePath: z.string().optional(),
-        lineNumber: z.number().int().optional(), extractionTimestamp: z.string(), rawPayload: z.string().optional(), mcpTool: z.string().optional()
+        lineNumber: z.number().int().optional(), extractionTimestamp: z.string(), rawPayload: z.string().optional(), connector: z.string().optional()
     })
 });
 const graphEdgeSchema = z.object({
@@ -67,29 +67,40 @@ const safeNeo4jLabel = (label) => label.replace(/[^A-Za-z0-9_]/g, '_');
 export const extractOntologyFromText = async (rawText, domain) => {
     const schema = domainSchemas[domain];
     const anonymized = await anonymizeText(rawText, domain);
-    const completion = await getAiClient().chat.completions.create({
-        model: getAiModel(),
-        temperature: 0,
-        response_format: ontologyResponseFormat,
-        messages: [
-            {
-                role: 'system',
-                content: [
-                    'Extract an enterprise ontology from the supplied text.',
-                    'Return only a JSON object with exactly two arrays: nodes and edges.',
-                    'Each node must have id, type { id, label, attributes }, domain, secondaryLabels, sourceSystem, properties, createdAt, validFrom, validTo, transactionFrom, transactionTo, and provenance { sourceSystem, rawSourceId, filePath?, lineNumber?, extractionTimestamp, rawPayload?, mcpTool? }.',
-                    'Each edge must have id, source, target, relationship, properties, validFrom, validTo, transactionFrom, and transactionTo.',
-                    'Use primitive values only in attributes, properties, and edge properties.',
-                    'Use sourceSystem SME_INPUT when the source cannot be inferred.',
-                    `The selected domain is ${schema.displayName} (${domain}). ${schema.systemPromptRules}`,
-                    `Allowed node labels: ${schema.allowedNodeLabels.join(', ') || 'custom labels configured by the caller'}.`,
-                    `Allowed relationships: ${schema.allowedRelationships.join(', ') || 'custom relationships configured by the caller'}.`,
-                    'Return valid JSON matching exactly {"nodes": [...], "edges": [...]}. Do not return markdown or explanatory text.'
-                ].join(' ')
-            },
-            { role: 'user', content: anonymized.sanitizedText }
-        ]
-    });
+    let completion;
+    try {
+        completion = await getAiClient().chat.completions.create({
+            model: getAiModel(),
+            temperature: 0,
+            response_format: ontologyResponseFormat,
+            messages: [
+                {
+                    role: 'system',
+                    content: [
+                        'Extract an enterprise ontology from the supplied text.',
+                        'Return only a JSON object with exactly two arrays: nodes and edges.',
+                        'Each node must have id, type { id, label, attributes }, domain, secondaryLabels, sourceSystem, properties, createdAt, validFrom, validTo, transactionFrom, transactionTo, and provenance { sourceSystem, rawSourceId, filePath?, lineNumber?, extractionTimestamp, rawPayload?, connector? }.',
+                        'Each edge must have id, source, target, relationship, properties, validFrom, validTo, transactionFrom, and transactionTo.',
+                        'Use primitive values only in attributes, properties, and edge properties.',
+                        'Use sourceSystem SME_INPUT when the source cannot be inferred.',
+                        `The selected domain is ${schema.displayName} (${domain}). ${schema.systemPromptRules}`,
+                        `Allowed node labels: ${schema.allowedNodeLabels.join(', ') || 'custom labels configured by the caller'}.`,
+                        `Allowed relationships: ${schema.allowedRelationships.join(', ') || 'custom relationships configured by the caller'}.`,
+                        'Return valid JSON matching exactly {"nodes": [...], "edges": [...]}. Do not return markdown or explanatory text.'
+                    ].join(' ')
+                },
+                { role: 'user', content: anonymized.sanitizedText }
+            ]
+        });
+    }
+    catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        const status = typeof error === 'object' && error !== null && 'status' in error ? Number(error.status) : undefined;
+        if ((status === 403 || /\b403\b/.test(message)) && /zscaler|internet security|organization.?s policy/i.test(message)) {
+            throw new Error(`${getAiProvider()} was blocked by your organization's network policy (HTTP 403). Select an approved AI provider or request access to its API endpoint.`);
+        }
+        throw error;
+    }
     const content = completion.choices[0]?.message.content;
     if (!content) {
         throw new Error('AI provider returned an empty ontology response.');
@@ -143,7 +154,7 @@ const parseProvenance = (value, properties) => {
     try {
         return z.object({
             sourceSystem: z.string(), rawSourceId: z.string(), filePath: z.string().optional(),
-            lineNumber: z.number().int().optional(), extractionTimestamp: z.string(), rawPayload: z.string().optional(), mcpTool: z.string().optional()
+            lineNumber: z.number().int().optional(), extractionTimestamp: z.string(), rawPayload: z.string().optional(), connector: z.string().optional()
         }).parse(JSON.parse(String(value)));
     }
     catch {
@@ -167,7 +178,7 @@ const provenanceDefaults = (node) => ({
     lineNumber: node.provenance?.lineNumber,
     extractionTimestamp: node.provenance?.extractionTimestamp ?? new Date().toISOString(),
     rawPayload: node.provenance?.rawPayload,
-    mcpTool: node.provenance?.mcpTool
+    connector: node.provenance?.connector
 });
 export const persistGraphToNeo4j = async (nodes, edges) => {
     const session = getNeo4jDriver().session();
@@ -191,25 +202,36 @@ export const persistGraphToNeo4j = async (nodes, edges) => {
                 };
             });
             if (nodeBatch.length > 0) {
-                await transaction.run(`UNWIND $batch AS row
-           MERGE (n:Entity {id: row.id})
-           SET n += row.properties,
-             n.id = row.id,
-             n.typeId = row.typeId,
-             n.typeLabel = row.typeLabel,
-             n.domain = row.domain,
-             n.secondaryLabels = row.secondaryLabels,
-             n.sourceSystem = row.sourceSystem,
-             n.typeAttributesJson = row.typeAttributesJson,
-             n.createdAt = row.createdAt,
-             n.validFrom = row.validFrom,
-             n.validTo = row.validTo,
-             n.transactionFrom = row.transactionFrom,
-             n.transactionTo = row.transactionTo,
-             n.provenanceJson = row.provenanceJson
-           WITH n, row
-           CALL apoc.create.addLabels(n, [row.domainLabel, row.typeLabel] + row.secondaryLabels) YIELD node
-           RETURN count(node)`, { batch: nodeBatch });
+                const labelGroups = new Map();
+                for (const row of nodeBatch) {
+                    const labels = [...new Set([row.domainLabel, row.typeLabel, ...row.secondaryLabels])];
+                    const key = JSON.stringify(labels);
+                    const group = labelGroups.get(key) ?? [];
+                    group.push(row);
+                    labelGroups.set(key, group);
+                }
+                for (const [labelsJson, batch] of labelGroups) {
+                    const labels = JSON.parse(labelsJson);
+                    const labelSet = labels.map((label) => `:\`${label}\``).join('');
+                    await transaction.run(`UNWIND $batch AS row
+             MERGE (n:Entity {id: row.id})
+             SET n += row.properties,
+               n.id = row.id,
+               n.typeId = row.typeId,
+               n.typeLabel = row.typeLabel,
+               n.domain = row.domain,
+               n.secondaryLabels = row.secondaryLabels,
+               n.sourceSystem = row.sourceSystem,
+               n.typeAttributesJson = row.typeAttributesJson,
+               n.createdAt = row.createdAt,
+               n.validFrom = row.validFrom,
+               n.validTo = row.validTo,
+               n.transactionFrom = row.transactionFrom,
+               n.transactionTo = row.transactionTo,
+               n.provenanceJson = row.provenanceJson
+             SET n${labelSet}
+             RETURN count(n)`, { batch });
+                }
             }
             const edgeBatch = edges.map((edge) => ({
                 ...edge,
@@ -255,11 +277,36 @@ export const linkMatchingProducts = async (nodeIds) => {
             CASE WHEN a.id < b.id THEN b ELSE a END AS target, key
        MERGE (source)-[r:SAME_AS {id: 'SAME_AS:' + source.id + '|' + target.id}]->(target)
        SET r.relationship = 'SAME_AS', r.matchedBy = key, r.confidence = 1.0,
-           r.validFrom = coalesce(r.validFrom, source.validFrom, datetime().toString()),
+           r.validFrom = coalesce(r.validFrom, source.validFrom, toString(datetime())),
            r.validTo = coalesce(r.validTo, source.validTo, '9999-12-31T23:59:59.999Z'),
-           r.transactionFrom = coalesce(r.transactionFrom, source.transactionFrom, datetime().toString()),
+           r.transactionFrom = coalesce(r.transactionFrom, source.transactionFrom, toString(datetime())),
            r.transactionTo = coalesce(r.transactionTo, source.transactionTo, '9999-12-31T23:59:59.999Z')
        RETURN count(r)`, { nodeIds }));
+    }
+    finally {
+        await session.close();
+    }
+};
+export const deleteGraphNode = async (id) => {
+    const session = getNeo4jDriver().session();
+    try {
+        const result = await session.executeWrite((transaction) => transaction.run('MATCH (node:Entity {id: $id}) DETACH DELETE node RETURN count(node) AS deletedCount', { id }));
+        return (result.records[0]?.get('deletedCount').toNumber() ?? 0) > 0;
+    }
+    finally {
+        await session.close();
+    }
+};
+export const deleteGraphNodes = async (ids) => {
+    if (ids.length === 0)
+        return 0;
+    const session = getNeo4jDriver().session();
+    try {
+        const result = await session.executeWrite((transaction) => transaction.run(`UNWIND $ids AS id
+       MATCH (node:Entity {id: id})
+       DETACH DELETE node
+       RETURN count(node) AS deletedCount`, { ids }));
+        return result.records[0]?.get('deletedCount').toNumber() ?? 0;
     }
     finally {
         await session.close();
@@ -268,12 +315,12 @@ export const linkMatchingProducts = async (nodeIds) => {
 export const queryGraphAtTimestamp = async (asOfDate) => {
     const session = getNeo4jDriver().session();
     try {
-        const result = await session.executeRead((transaction) => transaction.run(`MATCH (n)
+        const result = await session.executeRead((transaction) => transaction.run(`MATCH (n:Entity)
        WHERE coalesce(n.validFrom, n.createdAt, '1970-01-01T00:00:00.000Z') <= $asOfDate
          AND coalesce(n.validTo, '9999-12-31T23:59:59.999Z') > $asOfDate
          AND coalesce(n.transactionFrom, n.createdAt, '1970-01-01T00:00:00.000Z') <= $asOfDate
          AND coalesce(n.transactionTo, '9999-12-31T23:59:59.999Z') > $asOfDate
-       OPTIONAL MATCH (n)-[r]->(m)
+      OPTIONAL MATCH (n)-[r]->(m:Entity)
        WHERE (r IS NULL OR (
          coalesce(m.validFrom, m.createdAt, '1970-01-01T00:00:00.000Z') <= $asOfDate
          AND coalesce(m.validTo, '9999-12-31T23:59:59.999Z') > $asOfDate

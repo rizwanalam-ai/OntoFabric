@@ -174,7 +174,7 @@ export const syncBusinessSource = async (type: BusinessSource): Promise<{ nodes:
       validTo: DEFAULT_TEMPORAL_END,
       transactionFrom: timestamp,
       transactionTo: DEFAULT_TEMPORAL_END,
-      provenance: { sourceSystem: type, rawSourceId: rawId, extractionTimestamp: timestamp, mcpTool: `${type.toLowerCase()}_api` }
+      provenance: { sourceSystem: type, rawSourceId: rawId, extractionTimestamp: timestamp, connector: `${type.toLowerCase()}_api` }
     };
   });
   return { nodes, count: nodes.length, entityType: result.entityType };

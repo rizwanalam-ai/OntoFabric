@@ -79,7 +79,7 @@ export const syncSapSandbox = async (): Promise<{ sourceType: 'ERP'; entityType:
       sourceSystem: 'SAP',
       rawSourceId: recordId(record, index),
       extractionTimestamp: timestamp,
-      mcpTool: 'sap_business_accelerator_hub'
+      connector: 'sap_business_accelerator_hub'
     }
   }));
 

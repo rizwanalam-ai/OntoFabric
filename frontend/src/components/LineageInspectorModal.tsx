@@ -31,7 +31,7 @@ export function LineageInspectorModal({ node, onClose }: LineageInspectorModalPr
             <div className="flex flex-wrap items-center gap-2 text-xs">
               <span className="rounded-xl border border-amber-300/20 bg-amber-300/10 px-3 py-2 text-amber-100">Raw file: {rawLabel}</span>
               <span className="text-slate-600">-&gt;</span>
-              <span className="rounded-xl border border-cyan-300/20 bg-cyan-300/10 px-3 py-2 text-cyan-100">MCP Tool: {provenance.mcpTool ?? 'ingestion connector'}</span>
+              <span className="rounded-xl border border-cyan-300/20 bg-cyan-300/10 px-3 py-2 text-cyan-100">Connector: {provenance.connector ?? 'direct ingestion'}</span>
               <span className="text-slate-600">-&gt;</span>
               <span className="rounded-xl border border-fuchsia-300/20 bg-fuchsia-300/10 px-3 py-2 text-fuchsia-100">Node: {node.id}</span>
             </div>

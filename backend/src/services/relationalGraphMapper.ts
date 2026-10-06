@@ -69,7 +69,7 @@ export const syncRelationalTableToNeo4j = async (
         entityLabel,
         syncedAt: new Date().toISOString(),
         temporalEnd: DEFAULT_TEMPORAL_END,
-        provenanceJson: JSON.stringify({ sourceSystem: payload.sourceType, extractionTimestamp: new Date().toISOString(), mcpTool: `${payload.sourceType.toLowerCase()}Sync` })
+        provenanceJson: JSON.stringify({ sourceSystem: payload.sourceType, extractionTimestamp: new Date().toISOString(), connector: `${payload.sourceType.toLowerCase()}Sync` })
       });
       const nodeCount = nodeResult.records[0]?.get('count').toNumber() ?? 0;
       const relationshipCounts: Record<string, number> = {};

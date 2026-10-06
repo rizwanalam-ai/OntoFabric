@@ -1,4 +1,5 @@
 import path from 'node:path';
+import { readFile } from 'node:fs/promises';
 import { lookup } from 'node:dns/promises';
 import { isIP } from 'node:net';
 
@@ -8,7 +9,6 @@ import multer from 'multer';
 
 import { DEFAULT_TEMPORAL_END, type DomainContext, type GraphEdge, type GraphNode, type SourceSystem } from '@ontofabric/shared/types.js';
 import { getUserRole, redactNodeProperties } from '../middleware/abacMiddleware.js';
-import { callExcelParser, callPdfParser } from '../mcpClient.js';
 import {
   deleteGraphNode,
   deleteGraphNodes,
@@ -21,7 +21,7 @@ import { executeGroundedQuery } from '../services/graphRagService.js';
 import { rehydrateText } from '../services/anonymizationService.js';
 import { applyHealedMappings, detectSchemaDrift, resolveExpectedSchema } from '../services/schemaDriftService.js';
 import type { SchemaDriftResult } from '../services/schemaDriftService.js';
-import { executeLocalGraphUpdate, executeWriteBackAction } from '../services/actionEngineService.js';
+import { executeLocalGraphUpdate } from '../services/actionEngineService.js';
 import { syncSapSandbox } from '../services/sapService.js';
 import { getFileSourceType, parseUploadedFile } from '../services/fileIngestionService.js';
 import { recordSyncAudit } from '../services/syncAuditService.js';
@@ -66,7 +66,7 @@ const smeNodeSchema = z.object({
   transactionTo: z.string().datetime().optional(),
   provenance: z.object({
     sourceSystem: z.string(), rawSourceId: z.string(), filePath: z.string().optional(), lineNumber: z.number().int().optional(),
-    extractionTimestamp: z.string(), rawPayload: z.string().optional(), mcpTool: z.string().optional()
+    extractionTimestamp: z.string(), rawPayload: z.string().optional(), connector: z.string().optional()
   }).optional()
 }).strict();
 
@@ -202,10 +202,6 @@ const rehydrateSchema = z.object({
   sanitizedText: z.string(),
   redactionId: z.string().min(1)
 }).strict();
-const actionSchema = z.object({
-  actionType: z.enum(['update_sap_purchase_order', 'update_crm_account_status']),
-  payload: z.record(z.unknown())
-}).strict();
 const localActionSchema = z.object({
   nodeId: z.string().trim().min(1),
   oldValues: z.record(z.unknown()).default({}),
@@ -226,21 +222,6 @@ router.post('/privacy/rehydrate', async (request, response) => {
     response.json({ text: rehydrateText(parsedRequest.data.sanitizedText, parsedRequest.data.redactionId, getUserRole(request)) });
   } catch (error) {
     response.status(403).json({ error: 'Rehydration is not authorized or the cache entry has expired.', message: errorMessage(error) });
-  }
-});
-
-router.post('/actions/write-back', async (request, response) => {
-  const parsedRequest = actionSchema.safeParse(request.body);
-  if (!parsedRequest.success) {
-    response.status(400).json({ error: 'Invalid write-back action request.', details: parsedRequest.error.flatten() });
-    return;
-  }
-  try {
-    const userId = request.header('x-user-id') ?? `role:${getUserRole(request)}`;
-    const result = await executeWriteBackAction(parsedRequest.data.actionType, { ...parsedRequest.data.payload, userId });
-    response.json(result);
-  } catch (error) {
-    response.status(502).json({ error: 'Write-back action failed.', message: errorMessage(error) });
   }
 });
 
@@ -307,14 +288,12 @@ router.post('/ingest/file', async (request, response) => {
   }
   const { filePath, sourceType, targetEntity } = parsedRequest.data;
   const domain: DomainContext = queryDomain.success ? queryDomain.data : parsedRequest.data.domain ?? 'CUSTOM';
-  const detectedSourceType: SourceSystem = sourceType
-    ?? (path.extname(filePath).toLowerCase() === '.pdf' ? 'PDF' : 'EXCEL');
+  const detectedSourceType: SourceSystem = sourceType ?? getFileSourceType(filePath);
 
   const startedAt = new Date().toISOString();
   try {
-    const parsedSource = detectedSourceType === 'PDF'
-      ? await callPdfParser(filePath)
-      : await callExcelParser(filePath);
+    const parsedFile = await parseUploadedFile(await readFile(filePath), filePath, detectedSourceType);
+    const parsedSource = parsedFile.parsedSource;
     let sourceForExtraction: unknown = parsedSource;
     let schemaDrift: SchemaDriftResult | undefined;
     if (targetEntity) {
