@@ -23,7 +23,8 @@ const getMcpServerPath = (): string => process.env.MCP_SERVER_PATH
 
 const getClient = async (): Promise<Client> => {
   if (!clientPromise) {
-    clientPromise = (async () => {
+    let connectionPromise: Promise<Client>;
+    connectionPromise = (async () => {
       const serverPath = getMcpServerPath();
       const client = new Client({ name: 'ontofabric-backend', version: '0.1.0' });
       const transport = new StdioClientTransport({
@@ -32,13 +33,21 @@ const getClient = async (): Promise<Client> => {
         cwd: path.dirname(serverPath),
         stderr: 'pipe'
       });
+      transport.onclose = () => {
+        if (clientPromise === connectionPromise) {
+          clientPromise = undefined;
+        }
+      };
 
       await client.connect(transport);
       return client;
     })().catch((error) => {
-      clientPromise = undefined;
+      if (clientPromise === connectionPromise) {
+        clientPromise = undefined;
+      }
       throw error;
     });
+    clientPromise = connectionPromise;
   }
 
   return clientPromise;
@@ -69,24 +78,39 @@ const getNeo4jMcpClient = async (): Promise<Client> => {
   return neo4jMcpClientPromise;
 };
 
-const callTool = async <T>(name: string, arguments_: Record<string, unknown>): Promise<T> => {
-  const result = await (await getClient()).callTool({ name, arguments: arguments_ }) as McpToolResult;
+const callTool = async <T>(name: string, arguments_: Record<string, unknown>, retryOnClose = false): Promise<T> => {
+  const invoke = async (): Promise<T> => {
+    const result = await (await getClient()).callTool({ name, arguments: arguments_ }) as McpToolResult;
 
-  if (result.isError) {
-    throw new Error(result.content?.[0]?.text ?? `MCP tool ${name} failed.`);
+    if (result.isError) {
+      throw new Error(result.content?.[0]?.text ?? `MCP tool ${name} failed.`);
+    }
+
+    const text = result.content?.find((content) => content.type === 'text')?.text;
+    if (!text) {
+      throw new Error(`MCP tool ${name} returned no JSON content.`);
+    }
+
+    return JSON.parse(text) as T;
+  };
+
+  try {
+    return await invoke();
+  } catch (error) {
+    if (!retryOnClose || !(error instanceof Error) || !/connection closed/i.test(error.message)) {
+      throw error;
+    }
+
+    const staleClientPromise = clientPromise;
+    clientPromise = undefined;
+    await staleClientPromise?.then((client) => client.close()).catch(() => undefined);
+    return invoke();
   }
-
-  const text = result.content?.find((content) => content.type === 'text')?.text;
-  if (!text) {
-    throw new Error(`MCP tool ${name} returned no JSON content.`);
-  }
-
-  return JSON.parse(text) as T;
 };
 
-export const callExcelParser = (filePath: string) => callTool<unknown>('parse_excel_source', { filePath });
+export const callExcelParser = (filePath: string) => callTool<unknown>('parse_excel_source', { filePath }, true);
 
-export const callPdfParser = (filePath: string) => callTool<unknown>('parse_pdf_source', { filePath });
+export const callPdfParser = (filePath: string) => callTool<unknown>('parse_pdf_source', { filePath }, true);
 
 export const callSapPurchaseOrderUpdate = (orderId: string, updatedFields: Record<string, unknown>) => callTool<unknown>(
   'update_sap_purchase_order',
